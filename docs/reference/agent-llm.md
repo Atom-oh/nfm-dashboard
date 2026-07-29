@@ -7,7 +7,7 @@
 ## English
 
 ### 1. Overview
-The AI chatbot streams Bedrock Converse responses over SSE and lets the model call MCP tools exposed by a Bedrock AgentCore gateway (Python Lambda targets). The app calls the gateway server-side with SigV4 — no local MCP server is involved.
+The AI chatbot streams Bedrock Converse responses over SSE and lets the model call MCP tools exposed by a Bedrock AgentCore gateway (Python Lambda targets). The app calls the gateway server-side with SigV4 — no local MCP server is involved for this (consumer) direction. nfm-dashboard also runs the OTHER direction: `app/src/lib/mcp-server.ts` (`/api/mcp`, ADR-012) makes the app itself an MCP **provider** for external consumers (e.g. awsops), exposing analysis lenses that exist only in this web app.
 
 ### 2. Components
 | Component | Path | Purpose |
@@ -19,9 +19,10 @@ The AI chatbot streams Bedrock Converse responses over SSE and lets the model ca
 | MCP tool Lambdas | `tools/nfm_mcp.py`, `tools/ddb_mcp.py`, `tools/network_mcp.py` | Gateway targets querying NFM, DynamoDB, and network resources |
 | Gateway setup | `scripts/setup-gateway.sh`, `tools/create_gateway.py` | Creates the gateway + targets; URL stored in SSM `/nfm-dashboard/gateway-url` (read via `app/src/lib/ssm.ts`) |
 | Follow-ups | `app/src/lib/followups.ts` | Suggested follow-up question generation after each answer |
+| MCP egress server (ADR-012) | `app/src/lib/mcp-server.ts`, `app/src/app/api/mcp/route.ts` | The PROVIDER direction: 10 `nfm_*` read-only tools over existing lenses/reads, for external cross-account MCP consumers (e.g. awsops); bearer-token gated (`app/src/middleware.ts`) |
 
 ### 3. Key Decisions
-<!-- TODO: list 3-5 decisions or link to docs/decisions/ADR-*.md -->
+- The app is an MCP consumer (`mcp-client.ts` → `nfm-gateway`, SigV4/AWS_IAM, same-account) AND an MCP provider (`mcp-server.ts` → `/api/mcp`, bearer token, cross-account) — these are two independent, unrelated MCP surfaces; don't conflate them. See ADR-012 for why the provider side couldn't just reuse the existing gateway.
 
 ### 4. Code Pointers
 <!-- TODO: 3-7 entries; paths must be valid (checked by /sync-docs) -->
@@ -33,14 +34,14 @@ The AI chatbot streams Bedrock Converse responses over SSE and lets the model ca
 ### 5. Cross-references
 <!-- TODO -->
 - Related modules: `app/src/lib/CLAUDE.md`, `app/src/app/api/CLAUDE.md`, `infra/CLAUDE.md`
-- Related ADRs:
+- Related ADRs: `docs/decisions/ADR-012-mcp-data-source-egress.md`
 - Related runbooks:
 
 <a id="korean"></a>
 ## 한국어
 
 ### 1. 개요
-AI 챗봇은 Bedrock Converse 응답을 SSE로 스트리밍하며, 모델이 Bedrock AgentCore 게이트웨이(Python Lambda 타깃)가 노출하는 MCP 툴을 호출할 수 있다. 앱은 게이트웨이를 서버 사이드에서 SigV4로 호출한다 — 로컬 MCP 서버는 사용하지 않는다.
+AI 챗봇은 Bedrock Converse 응답을 SSE로 스트리밍하며, 모델이 Bedrock AgentCore 게이트웨이(Python Lambda 타깃)가 노출하는 MCP 툴을 호출할 수 있다. 앱은 게이트웨이를 서버 사이드에서 SigV4로 호출한다 — 이 방향(소비자)에는 로컬 MCP 서버가 사용되지 않는다. nfm-dashboard는 반대 방향도 운영한다: `app/src/lib/mcp-server.ts`(`/api/mcp`, ADR-012)가 이 앱 자신을 외부 소비자(예: awsops)를 위한 MCP **제공자**로 만들며, 이 웹앱에만 존재하는 분석 렌즈를 노출한다.
 
 ### 2. 구성요소
 | 구성요소 | 경로 | 목적 |
@@ -52,9 +53,10 @@ AI 챗봇은 Bedrock Converse 응답을 SSE로 스트리밍하며, 모델이 Bed
 | MCP 툴 Lambda | `tools/nfm_mcp.py`, `tools/ddb_mcp.py`, `tools/network_mcp.py` | NFM·DynamoDB·네트워크 리소스를 조회하는 게이트웨이 타깃 |
 | 게이트웨이 셋업 | `scripts/setup-gateway.sh`, `tools/create_gateway.py` | 게이트웨이 + 타깃 생성; URL은 SSM `/nfm-dashboard/gateway-url`에 저장(`app/src/lib/ssm.ts`로 조회) |
 | 후속 질문 | `app/src/lib/followups.ts` | 답변 후 후속 질문 제안 생성 |
+| MCP egress 서버 (ADR-012) | `app/src/lib/mcp-server.ts`, `app/src/app/api/mcp/route.ts` | 제공자 방향: 기존 렌즈/읽기를 감싼 10개 읽기 전용 `nfm_*` 툴을 외부 크로스 계정 MCP 소비자(예: awsops)에게 노출; bearer 토큰 게이트(`app/src/middleware.ts`) |
 
 ### 3. 주요 결정
-<!-- TODO: 3-5개 결정 나열 또는 docs/decisions/ADR-*.md 링크 -->
+- 이 앱은 MCP 소비자(`mcp-client.ts` → `nfm-gateway`, SigV4/AWS_IAM, 동일 계정) 이면서 동시에 MCP 제공자(`mcp-server.ts` → `/api/mcp`, bearer 토큰, 크로스 계정)이다 — 이 둘은 독립적이고 무관한 두 MCP 표면이니 혼동하지 말 것. 제공자 측이 기존 게이트웨이를 재사용할 수 없었던 이유는 ADR-012 참조.
 
 ### 4. 코드 포인터
 <!-- TODO: 3-7개 항목; 경로는 실재해야 함 (/sync-docs가 점검) -->
@@ -66,5 +68,5 @@ AI 챗봇은 Bedrock Converse 응답을 SSE로 스트리밍하며, 모델이 Bed
 ### 5. 상호 참조
 <!-- TODO -->
 - 관련 모듈: `app/src/lib/CLAUDE.md`, `app/src/app/api/CLAUDE.md`, `infra/CLAUDE.md`
-- 관련 ADR:
+- 관련 ADR: `docs/decisions/ADR-012-mcp-data-source-egress.md`
 - 관련 런북:

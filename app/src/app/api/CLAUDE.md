@@ -1,7 +1,7 @@
 # app/src/app/api — API Module
 
 ## Role
-Next.js route handlers — the dashboard's entire API surface. All routes are protected by `app/src/middleware.ts` (Cognito session cookie + CloudFront origin-verify) except `/api/health` and `/api/auth/*`. The session-cookie half can be temporarily disabled via `AUTH_DISABLED=1` (infra `authDisabled` context, ADR-005); origin-verify always applies.
+Next.js route handlers — the dashboard's entire API surface. All routes are protected by `app/src/middleware.ts` (Cognito session cookie + CloudFront origin-verify) except `/api/health` and `/api/auth/*`. The session-cookie half can be temporarily disabled via `AUTH_DISABLED=1` (infra `authDisabled` context, ADR-005); origin-verify always applies. `/api/mcp` is a third case — bearer-token gated instead of Cognito (ADR-012), for external cross-account MCP consumers.
 
 ## Endpoints
 - `ai/route.ts` — AI chat: SSE stream, Bedrock Converse loop with AgentCore MCP tools (`maxDuration = 300`)
@@ -18,6 +18,7 @@ Next.js route handlers — the dashboard's entire API surface. All routes are pr
 - `nfm/refresh/route.ts` — manual collection refresh trigger
 - `health/route.ts` — unauthenticated ALB healthcheck
 - `history/route.ts` — Athena-backed query over the S3/Parquet flow archive (`nfm_dashboard.flows_archive`) via `app/src/lib/athena.ts`; `?from=&to=&monitor=&namespace=&metric=&limit=`, defaults to the last 7 days
+- `mcp/route.ts` — JSON-RPC 2.0 MCP server (`app/src/lib/mcp-server.ts`) exposing 10 `nfm_*` read-only tools (schema/topology/top-talkers/pod-flows + cost/latency/reliability/anomalies/alerts lenses + history) for EXTERNAL cross-account MCP consumers (e.g. awsops), auth'd by `MCP_BEARER_TOKEN` instead of Cognito (ADR-012)
 
 ## Rules
 - Handlers stay thin: parse/validate input, call `app/src/lib/*`, shape the response. No business logic in routes.

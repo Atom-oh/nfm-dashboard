@@ -30,6 +30,21 @@ export async function middleware(req: NextRequest) {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 });
   }
 
+  // MCP data-source egress (ADR-012) — a separate bearer-token perimeter, not
+  // the Cognito session gate: awsops (a different AWS account) can't hold a
+  // Cognito session here. Fails closed: no token configured → route doesn't
+  // exist. Origin-verify above still applies, so a direct-to-ALB bypass of
+  // CloudFront is still 403 regardless of bearer.
+  if (pathname === '/api/mcp') {
+    const expected = process.env.MCP_BEARER_TOKEN;
+    if (!expected) return NextResponse.json({ error: 'not found' }, { status: 404 });
+    const got = (req.headers.get('authorization') ?? '').replace(/^Bearer /, '');
+    if (!(await safeEqual(got, expected))) {
+      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+    }
+    return NextResponse.next();
+  }
+
   if (isPublicPath(pathname)) return NextResponse.next();
 
   // Session-gate toggle: local dev without Cognito, or a deliberate operator
