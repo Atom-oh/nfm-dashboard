@@ -18,7 +18,8 @@ Next.js route handlers — the dashboard's entire API surface. All routes are pr
 - `nfm/refresh/route.ts` — manual collection refresh trigger
 - `health/route.ts` — unauthenticated ALB healthcheck
 - `history/route.ts` — Athena-backed query over the S3/Parquet flow archive (`nfm_dashboard.flows_archive`) via `app/src/lib/athena.ts`; `?from=&to=&monitor=&namespace=&metric=&limit=`, defaults to the last 7 days
-- `mcp/route.ts` — JSON-RPC 2.0 MCP server (`app/src/lib/mcp-server.ts`) exposing 10 `nfm_*` read-only tools (schema/topology/top-talkers/pod-flows + cost/latency/reliability/anomalies/alerts lenses + history) for EXTERNAL cross-account MCP consumers (e.g. awsops), auth'd by `MCP_BEARER_TOKEN` instead of Cognito (ADR-012)
+- `mcp/route.ts` — JSON-RPC 2.0 MCP server (`app/src/lib/mcp-server.ts`) exposing 12 `nfm_*` read-only tools (schema/overview/topology/infra-topology/top-talkers/pod-flows + cost/latency/reliability/anomalies/alerts lenses + history) for EXTERNAL cross-account MCP consumers (e.g. awsops), auth'd by `MCP_BEARER_TOKEN` instead of Cognito (ADR-012)
+- `mcp/meta/route.ts` — Cognito-gated (normal middleware path, NOT the bearer branch) read-only tool-catalog endpoint (name/description/inputSchema only, never a handler or the token) backing the `/settings` MCP integration card
 
 ## Rules
 - Handlers stay thin: parse/validate input, call `app/src/lib/*`, shape the response. No business logic in routes.

@@ -10,11 +10,12 @@
  * analysis logic lives here. See ADR-012 for why this exists and its
  * read-only/bounded-response invariants.
  */
-import { cachedLens, getCollectionHistory, getFlowsWindow, getFlowsWindowPair, getTopology,
-  queryPodFlows } from './ddb';
+import { cachedLens, getCollectionHistory, getCollectionStatus, getCoverage, getDns,
+  getFlowsWindow, getFlowsWindowPair, getTopology, queryPodFlows } from './ddb';
 import { getAlarms } from './cw-alarms';
-import { getNfmMetrics } from './cw-metrics';
+import { getNfmMetrics, healthByMonitor } from './cw-metrics';
 import { buildMonitorList } from './monitors';
+import { buildOverviewKpis, overviewSummary } from './overview-metrics';
 import { costLens } from './analytics/cost';
 import { latencyLens } from './analytics/latency';
 import { reliabilityLens, DEFAULT_RETRANS_RATE, DEFAULT_TIMEOUT_RATE } from './analytics/reliability';
@@ -23,6 +24,7 @@ import { compositeConditions } from './analytics/composite-conditions';
 import { moversLens } from './analytics/movers';
 import { deriveEvents } from './alerts';
 import { HistoryValidationError, runHistoryQuery } from './athena';
+import { INFRA_EDGES, INFRA_NODES } from './infra-topology';
 import type { TopoEdge, MetricName } from './types';
 
 const MAX_ROWS = 30;
@@ -79,6 +81,31 @@ export const TOOLS: McpTool[] = [
         dataAvailability: 'Live lenses: rolling 24h window (5-min buckets). Longer/arbitrary ranges: nfm_history (Athena archive).',
       };
     },
+  },
+  {
+    name: 'nfm_overview',
+    description: 'Fleet-wide at-a-glance status: KPIs (data transferred, retransmissions, timeouts, RTT p50/p95, network health indicator), a composite health summary (scorecard/efficiency/DNS), and collector coverage/collection status. The single best entry point for "how healthy is the fleet right now".',
+    inputSchema: { type: 'object', properties: {} },
+    handler: async () => {
+      const [status, coverage, series, flows, dns] = await Promise.all([
+        getCollectionStatus(),
+        getCoverage(),
+        getNfmMetrics(60).catch(() => ({})),
+        getFlowsWindow(12),
+        getDns().catch(() => null),
+      ]);
+      const { kpis, rttP50, rttP95, nhi } = buildOverviewKpis(series);
+      const summary = overviewSummary(flows, {
+        byMonitor: healthByMonitor(series), dns, windowSeconds: 12 * 300,
+      });
+      return { kpis, rttP50, rttP95, nhi, status, coverage, summary };
+    },
+  },
+  {
+    name: 'nfm_infra_topology',
+    description: 'nfm-dashboard\'s OWN request/data path — CloudFront -> ALB -> ECS -> {DynamoDB, Athena/S3, Bedrock, AgentCore, Cognito}. Static (CDK-derived), not live-queried. Use this to answer "where does traffic actually flow, end to end" for THIS app\'s infrastructure. For pod-to-pod flows inside the EKS clusters this product monitors, use nfm_topology instead — that is a different, live-queried graph.',
+    inputSchema: { type: 'object', properties: {} },
+    handler: async () => ({ nodes: INFRA_NODES, edges: INFRA_EDGES }),
   },
   {
     name: 'nfm_topology',

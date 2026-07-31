@@ -11,10 +11,17 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
+import * as acm from 'aws-cdk-lib/aws-certificatemanager';
+import * as route53 from 'aws-cdk-lib/aws-route53';
+import * as targets from 'aws-cdk-lib/aws-route53-targets';
 
-const VPC_ID = 'vpc-0dfa5610180dfa628'; // cc-on-bedrock-vpc (existing, reuse NAT)
+const VPC_ID = 'vpc-0e1b8458f46f9f81d'; // production-vpc (shared platform VPC — same as awsops-alb)
 const CLOUDFRONT_ORIGIN_FACING_PL = 'pl-22a6434b'; // com.amazonaws.global.cloudfront.origin-facing
 const ADMIN_SECRET_NAME = 'nfm-dashboard/cognito-admin'; // created out-of-band (scripts/save-cognito-secret.sh)
+const APP_DOMAIN = 'nfm-dashboard.atomai.click';
+const HOSTED_ZONE_ID = 'Z01703432E9KT1G1FIRFM'; // atomai.click
+const HOSTED_ZONE_NAME = 'atomai.click';
+const CERT_ARN = 'arn:aws:acm:us-east-1:180294183052:certificate/f6b6907a-5747-4039-967a-a8c7c73116a7'; // *.atomai.click
 
 /**
  * AppStack: ECR image → ECS Fargate (arm64) behind ALB, fronted by CloudFront,
@@ -57,7 +64,12 @@ export class AppStack extends cdk.Stack {
     appSg.addIngressRule(albSg, ec2.Port.tcp(3000), 'ALB to app');
 
     // ── ALB (public subnets; listener added after the service exists) ─────
-    const alb = new elbv2.ApplicationLoadBalancer(this, 'Alb', {
+    // Construct id 'Alb2' (not 'Alb'): the physical ALB behind the old logical
+    // id was deleted out-of-band (manual VPC-migration prep) while its
+    // Subnets/SecurityGroups are CFN-mutable properties, so any update to the
+    // old logical id resolves to an in-place API call against a dead ARN
+    // (404 NotFound) instead of a replacement — renaming forces CREATE+DELETE.
+    const alb = new elbv2.ApplicationLoadBalancer(this, 'Alb2', {
       vpc, internetFacing: true, securityGroup: albSg,
       vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
       deletionProtection: true, // guard against accidental stack/console deletion
@@ -92,8 +104,11 @@ export class AppStack extends cdk.Stack {
       originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER,
       viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
     } satisfies cloudfront.BehaviorOptions;
+    const certificate = acm.Certificate.fromCertificateArn(this, 'Cert', CERT_ARN);
     const distribution = new cloudfront.Distribution(this, 'Dist', {
       comment: 'nfm-dashboard',
+      domainNames: [APP_DOMAIN],
+      certificate,
       defaultBehavior: noCache, // dynamic pages + SSE: no caching, no buffering
       additionalBehaviors: {
         '/api/*': noCache, // explicit: API (incl. SSE /api/ai) is never cached
@@ -105,7 +120,17 @@ export class AppStack extends cdk.Stack {
         },
       },
       httpVersion: cloudfront.HttpVersion.HTTP2_AND_3 });
-    const appUrl = `https://${distribution.distributionDomainName}`;
+    const appUrl = `https://${APP_DOMAIN}`;
+    const cloudfrontUrl = `https://${distribution.distributionDomainName}`; // fallback, works before/without DNS
+
+    const zone = route53.HostedZone.fromHostedZoneAttributes(this, 'Zone', {
+      hostedZoneId: HOSTED_ZONE_ID, zoneName: HOSTED_ZONE_NAME });
+    new route53.ARecord(this, 'AppAliasA', {
+      zone, recordName: APP_DOMAIN,
+      target: route53.RecordTarget.fromAlias(new targets.CloudFrontTarget(distribution)) });
+    new route53.AaaaRecord(this, 'AppAliasAaaa', {
+      zone, recordName: APP_DOMAIN,
+      target: route53.RecordTarget.fromAlias(new targets.CloudFrontTarget(distribution)) });
 
     // ── Cognito ────────────────────────────────────────────────────────────
     const userPool = new cognito.UserPool(this, 'UserPool', {
@@ -126,8 +151,10 @@ export class AppStack extends cdk.Stack {
       oAuth: {
         flows: { authorizationCodeGrant: true },
         scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL],
-        callbackUrls: [`${appUrl}/api/auth/callback`],
-        logoutUrls: [`${appUrl}/login`] } });
+        // Both the custom domain and the CloudFront default domain are registered so
+        // login keeps working before/without DNS propagation for APP_DOMAIN.
+        callbackUrls: [`${appUrl}/api/auth/callback`, `${cloudfrontUrl}/api/auth/callback`],
+        logoutUrls: [`${appUrl}/login`, `${cloudfrontUrl}/login`] } });
 
     // Initial admin user. The password is read INSIDE the Lambda from Secrets
     // Manager (scripts/save-cognito-secret.sh) — it never appears in the template.
@@ -269,6 +296,7 @@ export class AppStack extends cdk.Stack {
 
     // ── Outputs ────────────────────────────────────────────────────────────
     new cdk.CfnOutput(this, 'AppUrl', { value: appUrl });
+    new cdk.CfnOutput(this, 'CloudFrontUrl', { value: cloudfrontUrl });
     new cdk.CfnOutput(this, 'UserPoolId', { value: userPool.userPoolId });
     new cdk.CfnOutput(this, 'ClientId', { value: client.userPoolClientId });
     new cdk.CfnOutput(this, 'CognitoDomain', { value: domain.baseUrl() });

@@ -11,10 +11,101 @@ import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { Card, Select, TextInput } from '@/components/ui/Controls';
 import { TIME_RANGES, type TimeRange } from '@/lib/analytics/filters';
 import { DEFAULT_SETTINGS, useSettings } from '@/lib/settings';
+import { usePolling } from '@/lib/use-polling';
 import PageIntro from '@/components/PageIntro';
 
 const SNS_SUBSCRIBE_CMD =
   'aws sns subscribe --topic-arn arn:aws:sns:ap-northeast-2:<account-id>:nfm-dashboard-alarms --protocol email --notification-endpoint you@example.com';
+
+interface McpToolMeta { name: string; description: string; }
+interface McpMetaResponse { tools: McpToolMeta[]; }
+
+/**
+ * MCP integration card: how to register this app's read-only MCP server
+ * (`/api/mcp`, ADR-012) — the live tool catalog (fetched, not hardcoded, so
+ * it can't drift from `mcp-server.ts`) plus copy-paste registration snippets
+ * for the two known consumers (Claude Code, awsops). The bearer token itself
+ * is NEVER fetched or shown here — only where to find it.
+ */
+function McpIntegrationCard() {
+  const { t } = useLanguage();
+  const { data, error } = usePolling<McpMetaResponse>('/api/mcp/meta', 5 * 60 * 1000);
+  const [origin, setOrigin] = useState('');
+  useEffect(() => setOrigin(window.location.origin), []);
+  const endpoint = `${origin || 'https://<this-domain>'}/api/mcp`;
+  const claudeCodeCmd =
+    `claude mcp add --transport http nfm-dashboard ${endpoint} ` +
+    '--header "Authorization: Bearer <TOKEN>"';
+  const awsopsPreset = `"nfm-dashboard-mcp-server-target": {
+    "gateway": "external-obs",
+    "preset_key": "nfm",
+    "description": "NFM Dashboard — pod-to-pod topology + infra request path + cost/latency/reliability lenses + history (read-only)",
+    "auth": {"mode": "api_key", "credential_location": "HEADER",
+             "credential_parameter_name": "Authorization", "credential_prefix": "Bearer "},
+}`;
+
+  return (
+    <Card title={t('settings.mcp')} testId="mcp-integration-card">
+      <p className={noteCls}>{t('settings.mcpHint')}</p>
+
+      <div className="mt-3 flex flex-col gap-1">
+        <span className="text-[11px] font-medium text-ink/60 dark:text-white/60">
+          {t('settings.mcpEndpoint')}
+        </span>
+        <div className="flex items-center gap-2">
+          <code className="min-w-0 flex-1 truncate rounded-md bg-black/5 px-2 py-1 text-xs dark:bg-white/10">
+            {endpoint}
+          </code>
+          <CopyButton text={endpoint} />
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-col gap-1">
+        <span className="text-[11px] font-medium text-ink/60 dark:text-white/60">
+          {t('settings.mcpTools')}
+        </span>
+        {error ? (
+          <p className={noteCls}>{t('settings.mcpToolsError')}</p>
+        ) : !data ? (
+          <p className={noteCls}>{t('settings.mcpToolsLoading')}</p>
+        ) : (
+          <ul className="flex flex-col gap-1 text-xs">
+            {data.tools.map((tool) => (
+              <li key={tool.name} className="flex flex-col">
+                <span className="font-mono text-[11px] text-chartViolet">{tool.name}</span>
+                <span className={noteCls}>{tool.description}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="mt-4 flex flex-col gap-1">
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] font-medium text-ink/60 dark:text-white/60">
+            {t('settings.mcpClaudeCode')}
+          </span>
+          <CopyButton text={claudeCodeCmd} />
+        </div>
+        <pre className="overflow-x-auto rounded-lg bg-black/5 p-3 text-xs leading-relaxed dark:bg-white/10">
+          <code>{claudeCodeCmd}</code>
+        </pre>
+      </div>
+
+      <div className="mt-4 flex flex-col gap-1">
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] font-medium text-ink/60 dark:text-white/60">
+            {t('settings.mcpAwsops')}
+          </span>
+          <CopyButton text={awsopsPreset} />
+        </div>
+        <pre className="overflow-x-auto rounded-lg bg-black/5 p-3 text-xs leading-relaxed dark:bg-white/10">
+          <code>{awsopsPreset}</code>
+        </pre>
+      </div>
+    </Card>
+  );
+}
 
 /** The four numeric settings rendered as validated number fields. */
 const NUMBER_FIELDS = ['retransThreshold', 'timeoutThreshold', 'costPerGb', 'anomalySigma'] as const;
@@ -174,6 +265,8 @@ export default function SettingsPage() {
           <code>{SNS_SUBSCRIBE_CMD}</code>
         </pre>
       </Card>
+
+      <McpIntegrationCard />
     </div>
   );
 }

@@ -7,10 +7,10 @@ describe('handleMcpRequest — protocol shape', () => {
     expect(res?.result).toMatchObject({ capabilities: { tools: {} } });
   });
 
-  it('tools/list returns exactly the 10 catalog tools, all nfm_-prefixed and unique', async () => {
+  it('tools/list returns exactly the 12 catalog tools, all nfm_-prefixed and unique', async () => {
     const res = await handleMcpRequest({ id: 1, method: 'tools/list' });
     const tools = (res?.result as { tools: { name: string; inputSchema: { type: string } }[] }).tools;
-    expect(tools).toHaveLength(10);
+    expect(tools).toHaveLength(12);
     const names = tools.map((t) => t.name);
     expect(new Set(names).size).toBe(names.length); // unique
     for (const name of names) expect(name).toMatch(/^nfm_/);
