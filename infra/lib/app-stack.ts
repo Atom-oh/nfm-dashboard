@@ -69,6 +69,16 @@ export class AppStack extends cdk.Stack {
       description: 'X-Origin-Verify header shared between CloudFront and the app middleware',
       generateSecretString: { passwordLength: 48, excludePunctuation: true, includeSpace: false } });
 
+    // ── MCP data-source egress bearer token (ADR-012) ──────────────────────
+    // Separate from origin-verify: this is the credential an EXTERNAL consumer
+    // (e.g. awsops, a different AWS account) presents to /api/mcp. Stable
+    // across deploys (no synth-time randomness → no task-def churn); rotate by
+    // updating the secret value and redeploying (ECS picks it up on restart).
+    const mcpToken = new secretsmanager.Secret(this, 'McpToken', {
+      secretName: 'nfm-dashboard/mcp-token',
+      description: 'Bearer token for external MCP data-source consumers of /api/mcp',
+      generateSecretString: { passwordLength: 48, excludePunctuation: true, includeSpace: false } });
+
     // ── CloudFront ─────────────────────────────────────────────────────────
     const origin = new origins.HttpOrigin(alb.loadBalancerDnsName, {
       protocolPolicy: cloudfront.OriginProtocolPolicy.HTTP_ONLY,
@@ -185,7 +195,8 @@ export class AppStack extends cdk.Stack {
         ATHENA_WORKGROUP: 'nfm-dashboard',
         GLUE_DB: 'nfm_dashboard',
         GLUE_TABLE: 'flows_archive' },
-      secrets: { ORIGIN_VERIFY_SECRET: ecs.Secret.fromSecretsManager(originVerify) } });
+      secrets: { ORIGIN_VERIFY_SECRET: ecs.Secret.fromSecretsManager(originVerify),
+        MCP_BEARER_TOKEN: ecs.Secret.fromSecretsManager(mcpToken) } });
 
     // Task role — least privilege per runtime needs of the app.
     const task = taskDef.taskRole;
@@ -263,6 +274,7 @@ export class AppStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'CognitoDomain', { value: domain.baseUrl() });
     new cdk.CfnOutput(this, 'AlbDns', { value: alb.loadBalancerDnsName });
     new cdk.CfnOutput(this, 'DistributionId', { value: distribution.distributionId });
+    new cdk.CfnOutput(this, 'McpTokenSecretArn', { value: mcpToken.secretArn }); // read once to hand to external MCP consumers
   }
 }
 

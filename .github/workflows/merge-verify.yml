@@ -1,0 +1,55 @@
+name: Merge Verify
+
+# Deterministic gate: typecheck + tests for all three workspaces (app / collector / infra).
+# GitHub-hosted runner, no secrets, no AWS access needed — everything here is offline
+# (vitest + tsc + esbuild). The AI review lives in pr-review.yml on the self-hosted runner.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  merge-verify:
+    name: Merge Verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: merge-verify-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      # Root install covers all three workspaces (npm workspaces: infra/app/collector).
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck app
+        run: npx -w app tsc --noEmit
+
+      - name: Test app
+        run: npx -w app vitest run
+
+      - name: Test collector
+        run: npm -w collector run test
+
+      # Bundling is part of the contract: the collector ships as esbuild output
+      # (dist/handler.mjs + dist/archive-transform.mjs) and a bundle-only break
+      # (bad import, unresolved external) would otherwise surface at deploy time.
+      - name: Build collector bundle
+        run: npm -w collector run build
+
+      - name: Typecheck infra
+        run: npx tsc --noEmit
+        working-directory: infra
+
+      - name: Test infra
+        run: npx vitest run
+        working-directory: infra
