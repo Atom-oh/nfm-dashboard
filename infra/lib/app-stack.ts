@@ -221,7 +221,15 @@ export class AppStack extends cdk.Stack {
         MONITORS: this.node.tryGetContext('nfmMonitors') ?? '',
         ATHENA_WORKGROUP: 'nfm-dashboard',
         GLUE_DB: 'nfm_dashboard',
-        GLUE_TABLE: 'flows_archive' },
+        GLUE_TABLE: 'flows_archive',
+        // ADR-013: SigV4/STS-based /api/mcp auth for same-account server-to-server
+        // callers (e.g. awsops's AgentCore runtime role). Own account ID resolved
+        // at synth time (no runtime STS call needed for self-identity); the
+        // allowlist is comma-separated `assumed-role/<RoleName>` entries or exact
+        // ARNs, via `-c mcpAllowedCallers=...` — empty by default (fails closed:
+        // no SigV4 caller is allowed until this is set).
+        MCP_ACCOUNT_ID: this.account,
+        MCP_ALLOWED_CALLERS: this.node.tryGetContext('mcpAllowedCallers') ?? '' },
       secrets: { ORIGIN_VERIFY_SECRET: ecs.Secret.fromSecretsManager(originVerify),
         MCP_BEARER_TOKEN: ecs.Secret.fromSecretsManager(mcpToken) } });
 

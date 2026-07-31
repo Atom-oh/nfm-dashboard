@@ -103,9 +103,28 @@ function McpIntegrationCard() {
           <code>{awsopsPreset}</code>
         </pre>
       </div>
+
+      <div className="mt-4 flex flex-col gap-1">
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] font-medium text-ink/60 dark:text-white/60">
+            {t('settings.mcpSigv4')}
+          </span>
+          <CopyButton text={SIGV4_SNIPPET} />
+        </div>
+        <p className={noteCls}>{t('settings.mcpSigv4Hint')}</p>
+        <pre className="overflow-x-auto rounded-lg bg-black/5 p-3 text-xs leading-relaxed dark:bg-white/10">
+          <code>{SIGV4_SNIPPET}</code>
+        </pre>
+      </div>
     </Card>
   );
 }
+
+const SIGV4_SNIPPET = `import boto3
+url = boto3.client("sts").generate_presigned_url("get_caller_identity", ExpiresIn=60)
+headers = {"Authorization": f"AWS4-GetCallerIdentity {url}"}
+# then POST that header + your JSON-RPC body to the endpoint above.
+# Ask nfm-dashboard to add your role to MCP_ALLOWED_CALLERS first — see ADR-013.`;
 
 /** The four numeric settings rendered as validated number fields. */
 const NUMBER_FIELDS = ['retransThreshold', 'timeoutThreshold', 'costPerGb', 'anomalySigma'] as const;

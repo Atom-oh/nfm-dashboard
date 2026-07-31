@@ -7,15 +7,16 @@
 ## English
 
 ### 1. Overview
-Defense in depth: CloudFront is the only public entry (ALB ingress limited to CloudFront origin-facing IPs + `x-origin-verify` shared secret), users authenticate via Cognito Hosted UI (PKCE) with a session cookie enforced by Next.js middleware, and server-to-gateway calls are SigV4-signed (AWS_IAM). One route breaks this pattern deliberately: `/api/mcp` (ADR-012) is a machine-to-machine data-source egress for EXTERNAL cross-account consumers (no Cognito session, no same-account IAM role) — it stays behind origin-verify but swaps the Cognito gate for a bearer-token check.
+Defense in depth: CloudFront is the only public entry (ALB ingress limited to CloudFront origin-facing IPs + `x-origin-verify` shared secret), users authenticate via Cognito Hosted UI (PKCE) with a session cookie enforced by Next.js middleware, and server-to-gateway calls are SigV4-signed (AWS_IAM). One route breaks this pattern deliberately: `/api/mcp` (ADR-012/013) is a machine-to-machine data-source egress with no Cognito session — it stays behind origin-verify but swaps the Cognito gate for one of two schemes: SigV4/STS `GetCallerIdentity` forwarding for same-account server-to-server callers (ADR-013 — nfm-dashboard and its known consumers, e.g. awsops, share an AWS account), or a static bearer token for clients that can't sign a request (Claude Code CLI). SigV4 is tried first and never falls through to the bearer check on failure.
 
 > **Auth toggle (ADR-005):** the Cognito session gate can be temporarily disabled via the `authDisabled` CDK context (`infra/cdk.json`) → task env `AUTH_DISABLED=1`; the `x-origin-verify` perimeter and all Cognito resources stay active either way. **Currently the toggle is OFF — login is enforced.**
 
 ### 2. Components
 | Component | Path | Purpose |
 |---|---|---|
-| Auth middleware | `app/src/middleware.ts` | Session-cookie gate on all non-public routes; constant-time `x-origin-verify` check (always enforced, runs before the bypass); `AUTH_DISABLED=1` skips ONLY the session gate — in production it is set exclusively by the `authDisabled` CDK context (ADR-005); `/api/mcp` gets its own constant-time bearer-token branch instead of the session gate (ADR-012) |
+| Auth middleware | `app/src/middleware.ts` | Session-cookie gate on all non-public routes; constant-time `x-origin-verify` check (always enforced, runs before the bypass); `AUTH_DISABLED=1` skips ONLY the session gate — in production it is set exclusively by the `authDisabled` CDK context (ADR-005); `/api/mcp` gets its own two-scheme branch instead of the session gate: SigV4/STS first (ADR-013), constant-time bearer-token fallback (ADR-012) |
 | Auth library | `app/src/lib/auth.ts` | Cognito ID-token verification, `SESSION_COOKIE_NAME`, `safeEqual` (also reused for the MCP bearer-token compare) |
+| MCP SigV4 verifier | `app/src/lib/sigv4-verify.ts` | `verifyStsCallerIdentity` — STS `GetCallerIdentity` forwarding (SSRF-guarded, host-pinned to `sts*.amazonaws.com`); `isAllowedMcpCaller` — same-account + role/ARN allowlist check (ADR-013) |
 | Auth routes | `app/src/app/api/auth/{login,callback,logout}/route.ts` | Hosted UI + PKCE login/callback/logout |
 | SigV4 MCP client | `app/src/lib/mcp-client.ts` | Signs AgentCore gateway requests (service `bedrock-agentcore`); unsigned requests get 401 — this is the INGRESS/consumer side |
 | MCP egress server | `app/src/lib/mcp-server.ts`, `app/src/app/api/mcp/route.ts` | Read-only JSON-RPC MCP server for EXTERNAL cross-account consumers; bearer-token gated (`MCP_BEARER_TOKEN`, ADR-012) — the EGRESS/provider side |
@@ -37,22 +38,23 @@ Defense in depth: CloudFront is the only public entry (ALB ingress limited to Cl
 ### 5. Cross-references
 <!-- TODO -->
 - Related modules: `app/CLAUDE.md`, `infra/CLAUDE.md`
-- Related ADRs: `docs/decisions/ADR-004-cloudfront-alb-cognito-ordering.md`, `docs/decisions/ADR-005-temporary-auth-disable-toggle.md`, `docs/decisions/ADR-012-mcp-data-source-egress.md`
+- Related ADRs: `docs/decisions/ADR-004-cloudfront-alb-cognito-ordering.md`, `docs/decisions/ADR-005-temporary-auth-disable-toggle.md`, `docs/decisions/ADR-012-mcp-data-source-egress.md`, `docs/decisions/ADR-013-sigv4-server-to-server-mcp-auth.md`
 - Related runbooks: `docs/runbooks/deploy.md`, `docs/runbooks/incident-response.md`
 
 <a id="korean"></a>
 ## 한국어
 
 ### 1. 개요
-심층 방어: 공개 진입점은 CloudFront뿐이며(ALB 인그레스는 CloudFront origin-facing IP + `x-origin-verify` 공유 시크릿으로 제한), 사용자는 Cognito Hosted UI(PKCE)로 인증하고 Next.js 미들웨어가 세션 쿠키를 강제한다. 서버→게이트웨이 호출은 SigV4 서명(AWS_IAM)으로 보호된다. 한 라우트는 이 패턴을 의도적으로 벗어난다: `/api/mcp`(ADR-012)는 외부 크로스 계정 소비자(Cognito 세션도, 동일 계정 IAM role도 없음)를 위한 기계-대-기계 데이터소스 egress로, origin-verify는 유지하지만 Cognito 게이트를 bearer 토큰 검사로 대체한다.
+심층 방어: 공개 진입점은 CloudFront뿐이며(ALB 인그레스는 CloudFront origin-facing IP + `x-origin-verify` 공유 시크릿으로 제한), 사용자는 Cognito Hosted UI(PKCE)로 인증하고 Next.js 미들웨어가 세션 쿠키를 강제한다. 서버→게이트웨이 호출은 SigV4 서명(AWS_IAM)으로 보호된다. 한 라우트는 이 패턴을 의도적으로 벗어난다: `/api/mcp`(ADR-012/013)는 Cognito 세션이 없는 기계-대-기계 데이터소스 egress로, origin-verify는 유지하지만 Cognito 게이트를 둘 중 하나로 대체한다: 같은 계정 서버 간 호출자를 위한 SigV4/STS `GetCallerIdentity` forwarding(ADR-013 — nfm-dashboard와 그 알려진 소비자(예: awsops)는 같은 AWS 계정을 씀), 또는 요청에 서명할 수 없는 클라이언트(Claude Code CLI)를 위한 정적 bearer 토큰. SigV4를 먼저 시도하고, 실패해도 bearer 검사로 넘어가지 않는다.
 
 > **인증 토글 (ADR-005):** Cognito 세션 게이트는 `authDisabled` CDK 컨텍스트(`infra/cdk.json`) → 태스크 env `AUTH_DISABLED=1`로 임시 비활성화할 수 있다(`x-origin-verify` 경계와 Cognito 리소스는 어느 경우든 유지). **현재 토글은 OFF — 로그인 강제 상태.**
 
 ### 2. 구성요소
 | 구성요소 | 경로 | 목적 |
 |---|---|---|
-| 인증 미들웨어 | `app/src/middleware.ts` | 비공개 전 경로 세션 쿠키 게이트; 상수 시간 `x-origin-verify` 검증(항상 강제, 바이패스보다 먼저 실행); `AUTH_DISABLED=1`은 세션 게이트만 스킵 — 프로덕션에서는 `authDisabled` CDK 컨텍스트로만 설정(ADR-005); `/api/mcp`는 세션 게이트 대신 자체 상수시간 bearer 토큰 분기를 가짐(ADR-012) |
+| 인증 미들웨어 | `app/src/middleware.ts` | 비공개 전 경로 세션 쿠키 게이트; 상수 시간 `x-origin-verify` 검증(항상 강제, 바이패스보다 먼저 실행); `AUTH_DISABLED=1`은 세션 게이트만 스킵 — 프로덕션에서는 `authDisabled` CDK 컨텍스트로만 설정(ADR-005); `/api/mcp`는 세션 게이트 대신 2단계 분기를 가짐: SigV4/STS 먼저(ADR-013), 상수시간 bearer 토큰 폴백(ADR-012) |
 | 인증 라이브러리 | `app/src/lib/auth.ts` | Cognito ID 토큰 검증, `SESSION_COOKIE_NAME`, `safeEqual`(MCP bearer 토큰 비교에도 재사용) |
+| MCP SigV4 검증기 | `app/src/lib/sigv4-verify.ts` | `verifyStsCallerIdentity` — STS `GetCallerIdentity` forwarding(SSRF 가드, 호스트를 `sts*.amazonaws.com`으로 고정); `isAllowedMcpCaller` — 동일 계정 + role/ARN allowlist 검사(ADR-013) |
 | 인증 라우트 | `app/src/app/api/auth/{login,callback,logout}/route.ts` | Hosted UI + PKCE 로그인/콜백/로그아웃 |
 | SigV4 MCP 클라이언트 | `app/src/lib/mcp-client.ts` | AgentCore 게이트웨이 요청 서명(서비스 `bedrock-agentcore`); 미서명 요청은 401 — INGRESS/소비자 측 |
 | MCP egress 서버 | `app/src/lib/mcp-server.ts`, `app/src/app/api/mcp/route.ts` | 외부 크로스 계정 소비자를 위한 읽기 전용 JSON-RPC MCP 서버; bearer 토큰 게이트(`MCP_BEARER_TOKEN`, ADR-012) — EGRESS/제공자 측 |
@@ -74,5 +76,5 @@ Defense in depth: CloudFront is the only public entry (ALB ingress limited to Cl
 ### 5. 상호 참조
 <!-- TODO -->
 - 관련 모듈: `app/CLAUDE.md`, `infra/CLAUDE.md`
-- 관련 ADR: `docs/decisions/ADR-004-cloudfront-alb-cognito-ordering.md`, `docs/decisions/ADR-005-temporary-auth-disable-toggle.md`, `docs/decisions/ADR-012-mcp-data-source-egress.md`
+- 관련 ADR: `docs/decisions/ADR-004-cloudfront-alb-cognito-ordering.md`, `docs/decisions/ADR-005-temporary-auth-disable-toggle.md`, `docs/decisions/ADR-012-mcp-data-source-egress.md`, `docs/decisions/ADR-013-sigv4-server-to-server-mcp-auth.md`
 - 관련 런북: `docs/runbooks/deploy.md`, `docs/runbooks/incident-response.md`

@@ -14,10 +14,11 @@ vi.mock('@/lib/auth', async (importOriginal) => {
   };
 });
 
-const req = (path: string, init?: { cookie?: string; originVerify?: string }) => {
+const req = (path: string, init?: { cookie?: string; originVerify?: string; authorization?: string }) => {
   const headers = new Headers();
   if (init?.cookie) headers.set('cookie', init.cookie);
   if (init?.originVerify) headers.set('x-origin-verify', init.originVerify);
+  if (init?.authorization) headers.set('authorization', init.authorization);
   return new NextRequest(`https://app.example${path}`, { headers });
 };
 
@@ -59,6 +60,52 @@ describe('AUTH_DISABLED=1 (operator toggle, honored in production — ADR-005)',
     expect((await middleware(req('/topology'))).status).toBe(403);
     expect((await middleware(req('/api/flows', { originVerify: 'wrong' }))).status).toBe(403);
     expect((await middleware(req('/topology', { originVerify: 's3cret' }))).status).toBe(200);
+  });
+});
+
+describe('/api/mcp perimeter (ADR-012/013 — bearer + SigV4, not the Cognito gate)', () => {
+  it('404s (route does not exist) when no bearer token is configured', async () => {
+    expect((await middleware(req('/api/mcp'))).status).toBe(404);
+  });
+
+  it('401s a wrong bearer token', async () => {
+    vi.stubEnv('MCP_BEARER_TOKEN', 'right-token');
+    const r = req('/api/mcp', { authorization: 'Bearer wrong-token' });
+    expect((await middleware(r)).status).toBe(401);
+  });
+
+  it('accepts the correct bearer token', async () => {
+    vi.stubEnv('MCP_BEARER_TOKEN', 'right-token');
+    const r = req('/api/mcp', { authorization: 'Bearer right-token' });
+    expect((await middleware(r)).status).toBe(200);
+  });
+
+  it('401s an AWS4-GetCallerIdentity header when SigV4 verification fails (malformed URL) — never falls through to bearer', async () => {
+    vi.stubEnv('MCP_BEARER_TOKEN', 'right-token'); // configured, but must not be consulted
+    const r = req('/api/mcp', { authorization: 'AWS4-GetCallerIdentity not-a-url' });
+    expect((await middleware(r)).status).toBe(401);
+  });
+
+  it('401s when no allowlist is configured, even with a bearer token also set', async () => {
+    vi.stubEnv('MCP_ACCOUNT_ID', '180294183052');
+    vi.stubEnv('MCP_ALLOWED_CALLERS', ''); // empty → fail-closed
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(
+      '<R><Arn>arn:aws:sts::180294183052:assumed-role/awsops-runtime/s1</Arn>' +
+      '<UserId>u</UserId><Account>180294183052</Account></R>', { status: 200 })));
+    const r = req('/api/mcp', { authorization: 'AWS4-GetCallerIdentity https://sts.amazonaws.com/?Action=GetCallerIdentity' });
+    expect((await middleware(r)).status).toBe(401);
+    vi.unstubAllGlobals();
+  });
+
+  it('accepts a SigV4 caller matching the configured allowlist', async () => {
+    vi.stubEnv('MCP_ACCOUNT_ID', '180294183052');
+    vi.stubEnv('MCP_ALLOWED_CALLERS', 'assumed-role/awsops-runtime');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(
+      '<R><Arn>arn:aws:sts::180294183052:assumed-role/awsops-runtime/s1</Arn>' +
+      '<UserId>u</UserId><Account>180294183052</Account></R>', { status: 200 })));
+    const r = req('/api/mcp', { authorization: 'AWS4-GetCallerIdentity https://sts.amazonaws.com/?Action=GetCallerIdentity' });
+    expect((await middleware(r)).status).toBe(200);
+    vi.unstubAllGlobals();
   });
 });
 

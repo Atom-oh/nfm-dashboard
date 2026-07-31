@@ -14,7 +14,9 @@ Server-side data access (DynamoDB, CloudWatch, SSM), Bedrock/MCP clients, auth h
 - `athena.ts` — Athena archive query client over the S3/Parquet flow archive (`nfm_dashboard.flows_archive`): `buildHistorySql` (injection-guarded via date + allowlist regex) + `runHistoryQuery`; backs `/api/history`
 - `bedrock.ts` — BedrockRuntimeClient singleton, `MODEL_ID` + `FALLBACK_MODEL_ID`, Converse/ConverseStream helpers
 - `mcp-client.ts` — SigV4-signed MCP (JSON-RPC over streamable HTTP) client for the AgentCore gateway (consumer side)
-- `mcp-server.ts` — MCP (JSON-RPC 2.0) egress server backing `/api/mcp` (provider side, ADR-012): 10 `nfm_*` read-only tools, each a thin wrapper over an existing `ddb.ts` read or `analytics/*` lens; bounded response rows (`bound()`); 24h `range` cap shared with ADR-008, beyond which callers use the `nfm_history` tool (Athena)
+- `mcp-server.ts` — MCP (JSON-RPC 2.0) egress server backing `/api/mcp` (provider side, ADR-012): 12 `nfm_*` read-only tools, each a thin wrapper over an existing `ddb.ts` read, `analytics/*` lens, `overview-metrics.ts`, or the static `infra-topology.ts` map; bounded response rows (`bound()`); 24h `range` cap shared with ADR-008, beyond which callers use the `nfm_history` tool (Athena)
+- `infra-topology.ts` — static, hand-maintained map of THIS app's own CloudFront→ALB→ECS→{DynamoDB,Athena/S3,Bedrock,AgentCore,Cognito} request/data path (backs the `nfm_infra_topology` MCP tool). No live AWS API calls — keep in lockstep with `infra/lib/*.ts` by hand; distinct from the live pod-to-pod flow topology in `ddb.ts`'s `getTopology()`
+- `sigv4-verify.ts` — `/api/mcp` server-to-server auth (ADR-013): `verifyStsCallerIdentity` does the STS `GetCallerIdentity` forwarding trick (SSRF-guarded to `sts*.amazonaws.com`); `isAllowedMcpCaller` checks same-account + a role/ARN allowlist
 - `auth.ts` — Cognito ID-token verification, session cookie, `safeEqual`
 - `i18n/` — `LanguageContext.tsx` + `translations/{ko,en}.json` (`t()`)
 - `chart-tokens.ts` — SnowUI palette (mirrors `app/tailwind.config.ts` — keep in sync)
