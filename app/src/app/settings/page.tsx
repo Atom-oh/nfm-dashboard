@@ -124,7 +124,7 @@ const SIGV4_SNIPPET = `import boto3
 url = boto3.client("sts").generate_presigned_url("get_caller_identity", ExpiresIn=60)
 headers = {"Authorization": f"AWS4-GetCallerIdentity {url}"}
 # then POST that header + your JSON-RPC body to the endpoint above.
-# Ask nfm-dashboard to add your role to MCP_ALLOWED_CALLERS first — see ADR-013.`;
+# Ask nfm-dashboard to allowlist your IAM role first (contact the operator).`;
 
 /** The four numeric settings rendered as validated number fields. */
 const NUMBER_FIELDS = ['retransThreshold', 'timeoutThreshold', 'costPerGb', 'anomalySigma'] as const;

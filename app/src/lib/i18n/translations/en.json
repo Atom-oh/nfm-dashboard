@@ -536,7 +536,7 @@
   "settings.mcpToolsError": "Couldn't load the tool catalog.",
   "settings.mcpClaudeCode": "Register in Claude Code",
   "settings.mcpAwsops": "Register in awsops (catalog.py preset)",
-  "settings.mcpSigv4": "Server-to-server (SigV4/STS, ADR-013)",
+  "settings.mcpSigv4": "Server-to-server (SigV4/STS)",
   "settings.mcpSigv4Hint": "For same-account AWS-credentialed callers (e.g. awsops's AgentCore runtime) — no shared secret, revoked by removing the IAM grant.",
   "cost.title": "Cost Explorer",
   "cost.estimateNote": "Estimates based on NFM transferred bytes — actual billing may differ.",
