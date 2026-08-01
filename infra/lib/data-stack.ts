@@ -8,6 +8,7 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as glue from 'aws-cdk-lib/aws-glue';
 import * as athena from 'aws-cdk-lib/aws-athena';
 import * as firehose from 'aws-cdk-lib/aws-kinesisfirehose';
+import * as sns from 'aws-cdk-lib/aws-sns';
 import { DynamoEventSource } from 'aws-cdk-lib/aws-lambda-event-sources';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
@@ -34,6 +35,18 @@ export class DataStack extends cdk.Stack {
       billingMode: ddb.BillingMode.PAY_PER_REQUEST,
       timeToLiveAttribute: 'ttl', removalPolicy: cdk.RemovalPolicy.DESTROY });
 
+    // Real-time flow-level alerting: the collector evaluates reliability
+    // breaches every cycle (current-window only) and pushes state
+    // TRANSITIONS (ALARM/OK) here — distinct from the infra-health
+    // `nfm-dashboard-alarms` topic in OpsAlarmsStack. A dedicated topic so a
+    // same-account subscriber (e.g. a server-to-server consumer's SQS queue)
+    // can filter on this stream alone without also matching ALB/collector
+    // infra alarms.
+    const flowAlertTopic = new sns.Topic(this, 'FlowAlertTopic', {
+      topicName: 'nfm-dashboard-flow-alerts',
+      displayName: 'nfm-dashboard flow-level alerts (reliability breaches)',
+    });
+
     const collectorDist = path.join(__dirname, '../../collector/dist');
     if (!fs.existsSync(path.join(collectorDist, 'handler.mjs')))
       throw new Error('collector/dist/handler.mjs missing — run: npm -w collector run build');
@@ -45,13 +58,16 @@ export class DataStack extends cdk.Stack {
       environment: { TABLE_FLOWS: this.flows.tableName, TABLE_META: this.meta.tableName,
         MONITORS: this.node.tryGetContext('nfmMonitors') ?? '', CONCURRENCY: '5',
         EXTENDED_CATEGORY_EVERY: '3', DNS_COLLECT_EVERY: '3',
-        DNS_CORE_GROUPS: ['ekscluster01-iptables', 'ekscluster01-ipvs', 'ekscluster01-nftables',
-          'eksworkshop'].map(c => `/aws/containerinsights/${c}/application`).join(','),
-        DNS_RESOLVER_GROUP: '/nfm-dashboard/resolver-dns' } });
+        DNS_CORE_GROUPS: ['fsi-demo-cluster', 'mall-apne2-az-a', 'mall-apne2-az-c',
+          'mall-apne2-mgmt'].map(c => `/aws/containerinsights/${c}/application`).join(','),
+        DNS_RESOLVER_GROUP: '/nfm-dashboard/resolver-dns',
+        FLOW_ALERT_TOPIC_ARN: flowAlertTopic.topicArn } });
     // Read + write: the hour-close rollup step Queries FLOW# partitions back
-    // out of the flows table to merge them into HFLOW rows (ADR-009).
+    // out of the flows table to merge them into HFLOW rows (ADR-009); the
+    // ALERTSTATE#reliability item is a plain Get/Put on the same table.
     this.flows.grantReadWriteData(this.collector);
     this.meta.grantReadWriteData(this.collector);
+    flowAlertTopic.grantPublish(this.collector);
     this.collector.addToRolePolicy(new iam.PolicyStatement({ actions: [
       'networkflowmonitor:StartQueryMonitorTopContributors',
       'networkflowmonitor:GetQueryStatusMonitorTopContributors',
@@ -273,5 +289,6 @@ export class DataStack extends cdk.Stack {
 
     new cdk.CfnOutput(this, 'FlowArchiveStreamName', { value: FIREHOSE_STREAM });
     new cdk.CfnOutput(this, 'FlowArchiveBucketName', { value: archiveBucket.bucketName });
+    new cdk.CfnOutput(this, 'FlowAlertTopicArn', { value: flowAlertTopic.topicArn }); // subscribe an SQS queue here for real-time reliability-breach push
   }
 }

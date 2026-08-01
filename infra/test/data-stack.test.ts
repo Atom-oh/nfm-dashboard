@@ -36,6 +36,24 @@ it('collector can READ the flows table (hour-close rollup queries raw buckets ba
   expect(flowsQueryAllowed).toBe(true);
 });
 
+it('DataStack has a dedicated flow-alert SNS topic the collector can publish to', () => {
+  const t = Template.fromStack(new DataStack(new App(), 'T',
+    { env: { account: '123456789012', region: 'ap-northeast-2' } }));
+  t.hasResourceProperties('AWS::SNS::Topic', { TopicName: 'nfm-dashboard-flow-alerts' });
+  t.hasResourceProperties('AWS::Lambda::Function', {
+    FunctionName: 'nfm-dashboard-collector',
+    Environment: { Variables: Match.objectLike({ FLOW_ALERT_TOPIC_ARN: Match.anyValue() }) } });
+  const topicLogicalId = Object.keys(t.findResources('AWS::SNS::Topic'))[0];
+  const policies = Object.values(t.findResources('AWS::IAM::Policy'))
+    .filter((p) => JSON.stringify(p.Properties.Roles).includes('Collector'));
+  const statements = policies.flatMap((p) => p.Properties.PolicyDocument.Statement as
+    { Action: string | string[]; Resource: unknown }[]);
+  const publishAllowed = statements.some((s) =>
+    ([] as string[]).concat(s.Action).includes('sns:Publish')
+    && JSON.stringify(s.Resource).includes(topicLogicalId));
+  expect(publishAllowed).toBe(true);
+});
+
 it('DataStack collector has DNS env + Logs Insights IAM', () => {
   const t = Template.fromStack(new DataStack(new App(), 'T',
     { env: { account: '123456789012', region: 'ap-northeast-2' } }));
@@ -45,7 +63,7 @@ it('DataStack collector has DNS env + Logs Insights IAM', () => {
       DNS_COLLECT_EVERY: '3', EXTENDED_CATEGORY_EVERY: '3',
       DNS_RESOLVER_GROUP: '/nfm-dashboard/resolver-dns',
       DNS_CORE_GROUPS: Match.stringLikeRegexp(
-        'containerinsights/ekscluster01-iptables/application.*eksworkshop/application') }) } });
+        'containerinsights/fsi-demo-cluster/application.*mall-apne2-mgmt/application') }) } });
   t.hasResourceProperties('AWS::IAM::Policy', { PolicyDocument: { Statement: Match.arrayWith([
     Match.objectLike({ Action: 'logs:StartQuery', Resource: Match.arrayWith([
       'arn:aws:logs:ap-northeast-2:123456789012:log-group:/aws/containerinsights/*']) }),

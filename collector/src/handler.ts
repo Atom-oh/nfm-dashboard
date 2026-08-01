@@ -4,6 +4,7 @@ import { DynamoDBDocumentClient, GetCommand, PutCommand } from '@aws-sdk/lib-dyn
 import { EC2Client } from '@aws-sdk/client-ec2';
 import { IAMClient } from '@aws-sdk/client-iam';
 import { CloudWatchLogsClient } from '@aws-sdk/client-cloudwatch-logs';
+import { SNSClient, PublishCommand } from '@aws-sdk/client-sns';
 import { runQueryMatrix } from './nfm-query.js';
 import { buildTopology, writeCycle } from './storage.js';
 import { categoriesForCycle } from './categories.js';
@@ -11,13 +12,15 @@ import { discoverOnboarding } from './onboard.js';
 import { collectWorkloadInsights } from './wi-query.js';
 import { collectDns } from './dns-collect.js';
 import { runRollupStep } from './rollup-store.js';
-import type { MetricName } from './types.js';
+import { detectReliabilityBreaches, diffBreachState } from './reliability-alert.js';
+import type { FlowEdge, MetricName } from './types.js';
 
 const nfm = new NetworkFlowMonitorClient({});
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
   marshallOptions: { removeUndefinedValues: true } });
 const ec2 = new EC2Client({}), iam = new IAMClient({});
 const cwlogs = new CloudWatchLogsClient({});
+const sns = new SNSClient({});
 
 export const handler = async () => {
   const monitorPairs = (process.env.MONITORS ?? '').split(',').filter(Boolean)
@@ -46,6 +49,12 @@ export const handler = async () => {
   const topology = buildTopology(edges, monitorToCluster, now.toISOString());
   await writeCycle(ddb, { flows: process.env.TABLE_FLOWS!, meta: process.env.TABLE_META! },
     { edges, topology, stats, cycleTs: now.toISOString(), coverage, cycle });
+  // Real-time reliability-breach push (current-cycle-only; no window-pair
+  // comparison). Edge-triggered against ALERTSTATE#reliability so a breach
+  // that persists across cycles produces one ALARM + one eventual OK, not a
+  // message every 5 minutes. MUST NOT fail the collect cycle.
+  await publishReliabilityAlerts(edges, now.toISOString()).catch(err => {
+    console.error('reliability alert publish failed', err); });
   const wi = await collectWorkloadInsights(nfm, { startTime, endTime })
     .catch(err => { console.error('wi failed', err); return undefined; });
   if (wi) await ddb.send(new PutCommand({ TableName: process.env.TABLE_META!,
@@ -76,3 +85,44 @@ export const handler = async () => {
     edges: edges.length, rollupHours: rollup.hoursDone.length }));
   return { ok: true, stats };
 };
+
+/**
+ * Detects this cycle's reliability breaches, diffs against the prior
+ * cycle's breaching-key set (ALERTSTATE#reliability/latest), and publishes
+ * one SNS message per state TRANSITION (ALARM on new breach, OK on
+ * recovery) to FLOW_ALERT_TOPIC_ARN — never one per cycle a breach persists.
+ * No-op (and no state write) when FLOW_ALERT_TOPIC_ARN is unset, so this is
+ * safe to deploy before the topic exists.
+ */
+async function publishReliabilityAlerts(edges: FlowEdge[], cycleTs: string): Promise<void> {
+  const topicArn = process.env.FLOW_ALERT_TOPIC_ARN;
+  if (!topicArn) return;
+  const current = detectReliabilityBreaches(edges);
+  const stateItem = await ddb.send(new GetCommand({ TableName: process.env.TABLE_META!,
+    Key: { pk: 'ALERTSTATE#reliability', sk: 'latest' } }))
+    .then(r => r.Item as { keys?: string[] } | undefined);
+  const { started, resolved } = diffBreachState(current, stateItem?.keys ?? []);
+
+  const publishes = [
+    ...started.map(row => sns.send(new PublishCommand({
+      TopicArn: topicArn,
+      Subject: `nfm-dashboard reliability breach: ${row.key}`,
+      Message: JSON.stringify({ kind: 'reliability_breach', state: 'ALARM', key: row.key,
+        retransRate: row.retransRate, timeoutRate: row.timeoutRate, cycleTs }),
+      MessageAttributes: {
+        kind: { DataType: 'String', StringValue: 'reliability_breach' },
+        state: { DataType: 'String', StringValue: 'ALARM' } } }))),
+    ...resolved.map(key => sns.send(new PublishCommand({
+      TopicArn: topicArn,
+      Subject: `nfm-dashboard reliability recovered: ${key}`,
+      Message: JSON.stringify({ kind: 'reliability_breach', state: 'OK', key, cycleTs }),
+      MessageAttributes: {
+        kind: { DataType: 'String', StringValue: 'reliability_breach' },
+        state: { DataType: 'String', StringValue: 'OK' } } }))),
+  ];
+  if (publishes.length) await Promise.all(publishes);
+
+  await ddb.send(new PutCommand({ TableName: process.env.TABLE_META!,
+    Item: { pk: 'ALERTSTATE#reliability', sk: 'latest',
+      keys: current.map(r => r.key), cycleTs } }));
+}
