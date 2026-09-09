@@ -71,11 +71,11 @@ for lens_file in "${LENS_FILES[@]}"; do
   lens="$(basename "$lens_file" .txt)"
   LENS_PROMPT="$(cat "$lens_file")"
 
-  # Codex (Bedrock, config.toml). --skip-git-repo-check 필수. AWS_REGION 강제: gpt-5.6-sol
-  # (bedrock-mantle)는 In-Region(us-east-1) 만 지원 — 잡 region 무관하게 고정.
+  # Codex (Bedrock, config.toml). --skip-git-repo-check 필수. global.openai.gpt-6-astra
+  # (amazon-bedrock-runtime, config.toml)는 글로벌 모델이라 리전 고정이 더 이상 필요 없다 —
+  # 이전 gpt-5.6-sol/bedrock-mantle(In-Region 전용) 설정과 다름.
   if command -v codex >/dev/null 2>&1; then
     ( try_panel "$SLOT/codex-$lens.md" "$SLOT/codex-$lens.err" \
-        env AWS_REGION="${CODEX_AWS_REGION:-us-east-1}" AWS_DEFAULT_REGION="${CODEX_AWS_REGION:-us-east-1}" \
         timeout "$T" codex exec -s read-only --skip-git-repo-check "$LENS_PROMPT" ) &
   else echo "[skip] codex/$lens (binary absent)" >&2; : > "$SLOT/codex-$lens.md"; fi
 
