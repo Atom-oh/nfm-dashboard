@@ -7,7 +7,8 @@ name: AI Code Review
 #   - pull_request_target base-SHA 체크아웃(M1): PR head 코드 미실행, diff 는 데이터로만
 #   - 매트릭스 fan-out: scripts/pr-review/run-panel.sh(3모델×4lens=12셀) → synthesize.sh
 #   - 인증: EKS Pod Identity(claude-runner) SigV4 + ai-panel-keys(KIRO)
-#   - 리전: us-east-1 (Claude us. geo / codex gpt-5.6-sol bedrock-mantle In-Region)
+#   - 리전: us-east-1 (Claude us. geo 요건. codex 자체 모델(global.openai.gpt-6-astra)은
+#     글로벌이라 리전 고정 불필요, 이 잡 변수는 무해하게 공유)
 #   - 러너: nfm-dashboard-claude-arm (ARC scale set, Atom-oh/AWS-Demo-Platform GitOps)
 # lens 정의는 scripts/pr-review/synthesize.sh 의 의장 프롬프트와 lockstep — 한쪽만 바꾸면
 # 패널이 본 lens 와 의장이 종합하는 lens 가 어긋난다.
@@ -35,7 +36,10 @@ jobs:
       pull-requests: write
       contents: read
     env:
-      # us-east-1 통일: Claude us. geo(on-demand) + codex gpt-5.6-sol mantle(In-Region).
+      # us-east-1 고정 유지 이유: claude-fable-5 는 on-demand US geo inference profile 이 필요해
+      # 엔드포인트와 AWS_REGION 이 일치해야 SigV4 서명이 통과한다. codex 자체 모델
+      # (global.openai.gpt-6-astra, amazon-bedrock-runtime/config.toml)은 글로벌이라 더 이상
+      # 리전 고정이 필요 없지만, 이 잡 레벨 변수는 codex 에도 무해하게 그대로 적용된다.
       ANTHROPIC_MODEL: us.anthropic.claude-fable-5
       CLAUDE_CODE_USE_BEDROCK: 1
       ANTHROPIC_BEDROCK_BASE_URL: https://bedrock-runtime.us-east-1.amazonaws.com
