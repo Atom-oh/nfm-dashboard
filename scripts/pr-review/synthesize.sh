@@ -94,7 +94,7 @@ PROMPT_EOF
   printf '%s\n' "$PANEL"
 } > "$WORK/synth-stdin.txt"
 
-# ── 의장 종합: primary(Fable 5) 시도 → 저하 시 Opus 폴백 ──────────────────
+# ── 의장 종합: primary(Fable 5.1) 시도 → 저하 시 Opus 폴백 ──────────────────
 # Fable 상태가 나쁠 때(연결 거부/행/빈 응답)에도 리뷰가 나오도록 폴백. TTFT(첫 토큰 지연)
 # 임계값은 안 씀 — Fable은 adaptive thinking이 상시 on이라 정상 상태에서도 첫 토큰이 늦을 수
 # 있어 오발동하고, ConnectionRefused는 빠르게 실패해 지연 기반으론 못 잡음. 대신 벽시계
@@ -109,14 +109,15 @@ PROMPT_EOF
 # 어카운트를 쓰는 ttobak 에서, 타임아웃 없는 구(4-패널) 버전 스크립트가 357줄 diff 종합에
 # 286초를 정상적으로 썼다. 매트릭스(4→16 패널 출력)는 체어 입력이 더 커 286s 실측조차
 # 밑돎 — job timeout-minutes 여유를 반영해 600s로 상향.
-PRIMARY_MODEL="${CHAIR_PRIMARY_MODEL:-us.anthropic.claude-fable-5}"
-FALLBACK_MODEL="${CHAIR_FALLBACK_MODEL:-us.anthropic.claude-opus-5}"
+PRIMARY_MODEL="${CHAIR_PRIMARY_MODEL:-global.anthropic.claude-fable-5-1}"
+FALLBACK_MODEL="${CHAIR_FALLBACK_MODEL:-global.anthropic.claude-opus-5}"
 CHAIR_TIMEOUT="${CHAIR_TIMEOUT:-600}"
 
 chair_label() { case "$1" in
-  *fable-5*)  echo "Claude Fable 5" ;;
-  *opus-5*)   echo "Claude Opus 5" ;;
-  *)          echo "$1" ;;
+  *fable-5-1*) echo "Claude Fable 5.1" ;;
+  *fable-5*)   echo "Claude Fable 5" ;;
+  *opus-5*)    echo "Claude Opus 5" ;;
+  *)           echo "$1" ;;
 esac ; }
 
 run_chair() {  # $1=model → "$OUT" 에 기록. claude 실패해도 || true 로 계속.
