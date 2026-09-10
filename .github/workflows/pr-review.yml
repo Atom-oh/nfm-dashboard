@@ -37,14 +37,15 @@ jobs:
       pull-requests: write
       contents: read
     env:
-      # claude-fable-5-1 은 global inference profile(codex 자체 모델
-      # global.openai.gpt-6-astra 와 동일 방식)이라 더 이상 AWS_REGION 고정이 필요 없다.
-      # ANTHROPIC_BEDROCK_BASE_URL 은 여전히 실재하는 리전 bedrock-runtime 엔드포인트를
-      # 가리키지만, 모델 ID 의 "global." 접두사가 Bedrock 이 가용한 곳으로 라우팅하게
-      # 해주므로 이제는 가장 가까운 리전(ap-northeast-2/Seoul)을 써도 된다.
+      # claude-fable-5-1 은 global inference profile 이지만, "global." 은 Bedrock 요청이
+      # 도달한 *이후*의 라우팅에만 적용되고 SigV4 서명 리전에는 적용되지 않는다 —
+      # ANTHROPIC_BEDROCK_BASE_URL 의 엔드포인트 리전과 AWS_REGION 은 여전히 일치해야
+      # 서명이 성립한다(codex 의 amazon-bedrock-runtime provider 는 이 제약이 없어 다름).
+      # 둘 다 us-east-1 대신 ap-northeast-2(Seoul)로 짝을 맞춰 이동.
       ANTHROPIC_MODEL: global.anthropic.claude-fable-5-1
       CLAUDE_CODE_USE_BEDROCK: 1
       ANTHROPIC_BEDROCK_BASE_URL: https://bedrock-runtime.ap-northeast-2.amazonaws.com
+      AWS_REGION: ap-northeast-2
     steps:
       # 보안(M1): pull_request_target 는 시크릿/쓰기권한 컨텍스트 → base(신뢰됨) 체크아웃.
       # base 를 명시 체크아웃해야 패널/의장이 diff 가 얹히는 BASE 파일(스택드 PR 의 base
