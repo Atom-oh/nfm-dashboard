@@ -1,8 +1,9 @@
 # PR review module
 
-[README.md](README.md) owns the interfaces, limits and staged rollout. The live
-workflow still dispatches `run-panel.sh`, `synthesize.sh` and `lib.sh`; activation
-is separate. Keep new docs in English and preserve the active review policy.
+[README.md](README.md) owns the active workflow interfaces and limits. This change selects
+`ROLE_REVIEW=1` in CI; legacy entrypoints remain for compatibility and regression
+fixtures. Keep instructions, docs and review output in English. Preserve complete
+required-role coverage, nonce framing and the project review policy.
 
 The installed specialist path is `run-specialists.sh` → `prepare_roles.py` /
 `run_role.py` → `role_review.py` / `synthesize_roles.py`. These executors fetch Git

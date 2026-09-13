@@ -1,8 +1,10 @@
 # Specialist review protocol
 
-The legacy review workflow remains active; activation is a separate reviewed
-change. The installed `role_review.py` library performs no Git or provider calls.
-The staged executors below do fetch Git data and invoke provider CLIs when run.
+CI selects `ROLE_REVIEW=1`. Trusted inputs feed specialist executors; validated
+results feed aggregation and, when needed, the chair. See
+[the project contract](../../docs/pr-review-specialists.md).
+The protocol library itself performs no Git or provider calls; its installed
+executors fetch Git data and invoke provider CLIs.
 
 | Tag | Requested model | Scope |
 | --- | --- | --- |
@@ -19,9 +21,11 @@ IDs do not attest model weights.
 
 - `run-specialists.sh DIFF LENSES WORK` coordinates preparation, required-role
   processes and aggregation. `LENSES` retains the legacy positional interface.
-- `prepare_roles.py` requires the trusted BASE checkout. It uses `gh api` to
-  resolve the merge base and fetches immutable Git objects without checking out
-  or executing PR-head code. Generic preparation reconstructs the diff from Git.
+- `prepare_roles.py` requires the trusted BASE checkout. CI's earlier token-bearing
+  step resolves/fetches immutable Git objects and supplies `MERGE_BASE_SHA`.
+  Preparation validates the SHA and local commits, then reconstructs the diff
+  without network access or a GitHub token. Standalone calls without this trusted
+  handoff retain API/fetch compatibility. PR-head code is never checked out.
 - `run_role.py` invokes one configured provider for each required role. Kiro uses
   private HOME/cwd and a no-tools preflight; Codex uses JSONL events and its final
   reply file. `role-controls.sh` strips control bytes before publication.
@@ -116,13 +120,13 @@ Limits: 95,000 diff bytes (UTF-8), 3,000 lines, 24,000 context bytes, <128 KiB
 request; projects may lower them. Oversize blocks. No chunk coordinator or
 combining partial PASS results; preserve custody/budgets.
 
-Run `python3 -m unittest discover -s scripts/pr-review -p 'test_*.py'` and
-`bash -n scripts/pr-review/run-specialists.sh scripts/pr-review/role-controls.sh scripts/pr-review/lib.sh`.
-Offline CI: `.github/workflows/pr-review-roles-tests.yml`. This stage installs the
-protocol and its tests; executor/adapter, limit and exact-HEAD publication tests
-remain activation requirements. Offline success does not establish live provider execution.
+Run `python3 -m unittest discover -s scripts/pr-review -p 'test_*.py'`.
+Check each shell entrypoint with `bash -n`: `run-specialists.sh`, `run-panel.sh`,
+`synthesize.sh`, `role-controls.sh` and `lib.sh`. Offline CI is
+`.github/workflows/pr-review-roles-tests.yml`; local success does not establish
+live provider execution. Verify exact-head publication and runtime evidence.
 
-Sol replaces this repository's legacy Terra slot at activation; application
+Sol replaces this repository's legacy Terra slot in this workflow; application
 inference models remain unchanged.
 
 Exclusions-only review requires both `--allow-exclusions-only --policy FILE`.
@@ -136,3 +140,7 @@ preparation for a new review; failed attempts retain their diagnostic history.
 
 Codex/Claude rows use Bedrock Runtime IDs; Kiro rows use Kiro catalog aliases.
 Local Codex on Mantle uses `openai.gpt-6-astra`; these namespaces are distinct.
+
+Codex uses structured transport events plus its CLI-designated final-output file.
+Tool output and progress text are not review results. Recovered transport notices
+remain visible; terminal provider errors still block.

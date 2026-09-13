@@ -12,6 +12,11 @@
 # 매 시도마다 $DIFF 를 다시 연다. 모든 셀(모델 수 × lens 수)이 병렬(&+wait) — 벽시계 ≈ 최슬로우
 # 셀 하나, 순차합 아님.
 set -uo pipefail
+
+# CI selects the specialist protocol; legacy fixtures remain available.
+if [ "${ROLE_REVIEW:-0}" = 1 ]; then
+  exec bash "$(dirname "$0")/run-specialists.sh" "$@"
+fi
 DIFF="$1"; LENSES_DIR="$2"; WORK="$3"
 DIR="$(cd "$(dirname "$0")" && pwd)"; . "$DIR/lib.sh"
 ensure_slots "$WORK"
@@ -65,7 +70,7 @@ try_panel() {
 }
 
 # glm-5(kiro-glm) 는 로스터에서 제외 — AWS-Demo-Platform 저장소의 PR#88 리뷰에서 이 모델만 4건의 오탐을 냈다(AWS-Demo-Platform 저장소의 ADR-015). 되살릴 때는 오탐률을 먼저 재측정할 것.
-KIRO_MODELS=("claude-opus-5:kiro-opus" "gpt-5.6-terra:kiro-gpt")
+KIRO_MODELS=("claude-opus-5:kiro-opus" "gpt-5.6-sol:kiro-gpt")
 
 for lens_file in "${LENS_FILES[@]}"; do
   lens="$(basename "$lens_file" .txt)"
@@ -73,10 +78,11 @@ for lens_file in "${LENS_FILES[@]}"; do
 
   # Codex (Bedrock, config.toml). --skip-git-repo-check 필수. global.openai.gpt-6-astra
   # (amazon-bedrock-runtime, config.toml)는 글로벌 모델이라 리전 고정이 더 이상 필요 없다 —
-  # 이전 gpt-5.6-sol/bedrock-mantle(In-Region 전용) 설정과 다름.
+  # Kiro uses its separate gpt-5.6-sol catalog alias; the old Mantle namespace
+  # is not this Codex provider or a Kiro model binding.
   if command -v codex >/dev/null 2>&1; then
     ( try_panel "$SLOT/codex-$lens.md" "$SLOT/codex-$lens.err" \
-        timeout "$T" codex exec -s read-only --skip-git-repo-check "$LENS_PROMPT" ) &
+        timeout "$T" codex exec --model global.openai.gpt-6-astra -s read-only --skip-git-repo-check "$LENS_PROMPT" ) &
   else echo "[skip] codex/$lens (binary absent)" >&2; : > "$SLOT/codex-$lens.md"; fi
 
   # Kiro x2 — model:tag 를 한 배열에서 파생(호출/집계 동기화). SECURITY data-only guard 는

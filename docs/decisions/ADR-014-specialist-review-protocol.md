@@ -4,7 +4,7 @@
 
 Accepted
 
-Date: 2026-09-13. The protocol is staged; activation needs a separate reviewed change.
+Date: 2026-09-13. CI activates specialist review with `ROLE_REVIEW=1`.
 
 ## Context
 
@@ -34,15 +34,26 @@ waive missing or invalid coverage. Preserve existing project input exclusions,
 secret/state custody, context and budgets. No quota or billing limits are raised.
 Review instructions and output are English to avoid duplicate translations.
 
-This records the approved protocol design; it does not supersede the live legacy
-workflow yet. The activation change must identify which older execution/coverage
-rules it replaces and preserve their remaining security and ownership decisions.
+This replaces the repeated matrix and unconditional chair. Existing input,
+security, ownership, publication and budget controls remain in force.
 See [the module contract](../../scripts/pr-review/README.md) for current interfaces
 and offline checks. Model access and production execution require separate evidence.
 
-The target Sol configuration intentionally replaces the legacy Terra review slot
-for consistent fleet configuration. This is an explicit target selection, not a
-claim that Sol is already LIVE or a change to the application inference models.
+Sol replaces Terra in the review panel; application inference models are unchanged.
+
+## Consequences
+
+The new protocol keeps immutable scope and blocked execution visible. App Router
+React files are treated conservatively because they may be server components.
+Codex/Claude remain mandatory independent primary roles. The shared `kiro-fable`
+tag maps to Opus and replaces the local `kiro-opus` tag;
+`claude-self` identifies Fable.
+
+English-only ADRs supersede the old bilingual template for new/updated records;
+operator Korean and product i18n remain supported. Existing historical records
+need no duplicate rewrite. Review prompts and artifacts now use English. Missing Korean duplicates are not review defects. Deterministic
+summaries reduce chair authority to substantive adjudication; they cannot waive
+missing coverage. Legacy entrypoints remain for regression fixtures; CI selects specialist review.
 
 A scope containing only files excluded by the existing, base-approved project
 input policy may complete as NOT_APPLICABLE with a PASS gate result. The trusted
@@ -51,28 +62,14 @@ identifies excluded paths and claims no model review. Any reviewable source,
 unknown exclusion, source omission or failed collector remains blocking. New
 exclusions require their own reviewed policy change.
 
-## Consequences
-
-The new protocol keeps immutable scope and blocked execution visible. App Router
-React files are treated conservatively because they may be server components.
-Codex/Claude remain mandatory independent primary roles. The shared `kiro-fable` tag maps to Opus and replaces the local `kiro-opus` tag;
-`claude-self` identifies Fable.
-
-English-only ADRs supersede the old bilingual template for new/updated records;
-operator Korean and product i18n remain supported. Existing historical records
-need no duplicate rewrite. English review output becomes active only with the
-executor rollout. Missing Korean duplicates are not review defects. Deterministic
-summaries reduce chair authority to substantive adjudication; they cannot waive
-missing coverage. The legacy workflow remains active during this staging phase.
+For future edits to README, CHANGELOG, architecture and other current guides,
+update the English text and remove its stale Korean duplicate. Translate Korean-only
+material when revising it. Untouched legacy text and immutable historical evidence
+may retain their original language; new templates and new content are English.
+The runbook template follows this policy. Product UI localization is unchanged.
 
 ## References
 
 - [Protocol contract](../../scripts/pr-review/README.md)
 - [Current workflow](../../.github/workflows/pr-review.yml)
 - [Project context](../../CLAUDE.md)
-
-For future edits to README, CHANGELOG, architecture and other current guides,
-update the English text and remove its stale Korean duplicate. Translate Korean-only
-material when revising it. Untouched legacy text and immutable historical evidence
-may retain their original language; new templates and new content are English.
-The runbook template follows this policy. Product UI localization is unchanged.

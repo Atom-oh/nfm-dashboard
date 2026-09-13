@@ -742,26 +742,49 @@ SENSITIVE_KEY = re.compile(
 )
 
 
+API_KEY_PATTERN = re.compile(r"(?<![A-Za-z0-9_])sk-[A-Za-z0-9_-]{16,}")
+
+
+def strip_controls(value, protect_api_boundary=False):
+    value = re.sub(r"(?:\x1b\[|\x9b)[0-?]*[ -/]*[@-~]", "", value)
+    value = re.sub(r"(?:\x1b[\]PX^_]|\x9d|\x90|\x98|\x9e|\x9f).*?(?:\x07|\x9c|\x1b\\|$)", "", value, flags=re.S)
+    value = re.sub(r"\x1b[ -/]*[0-~]", "", value)
+    result = []
+    for index, char in enumerate(value):
+        if char in "\n\r\t" or unicodedata.category(char) not in ("Cc", "Cf", "Zl", "Zp"):
+            result.append(char)
+        elif (protect_api_boundary and result and re.fullmatch(r"[A-Za-z0-9_]", result[-1])
+              and API_KEY_PATTERN.match(value, index + 1)):
+            # Do not join a word to a key across a removed legacy separator.
+            result.append(" ")
+    return "".join(result)
+
+
 def scrub(value, preserved=frozenset()):
     """Scrub decoded strings too: raw-JSON sanitizers miss escaped credentials."""
     if isinstance(value, list):
         return [scrub(x, preserved) for x in value]
     if isinstance(value, dict):
-        keyed = {scrub(k, preserved): v for k, v in value.items()}
-        fields = {str(k).lower(): v for k, v in keyed.items()}
-        sensitive_values = {v for k, v in (("name", "value"), ("headername", "headervalue"))
-                            if isinstance(fields.get(k), str) and SENSITIVE_KEY.fullmatch(fields[k])}
-        return {k: "[REDACTED]" if isinstance(k, str) and (
-            SENSITIVE_KEY.fullmatch(k) or k.lower() in sensitive_values
-        ) else scrub(v, preserved) for k, v in keyed.items()}
+        items = [(k, scrub(k, preserved), v) for k, v in value.items()]
+        sensitive_values = {field for name, field in (("name", "value"), ("headername", "headervalue"))
+            if any(isinstance(key, str) and strip_controls(key).lower() == name and isinstance(item, str)
+                   and SENSITIVE_KEY.search(strip_controls(item)) for key, _, item in items)}
+        result, suffix = {}, 1
+        for original, key, item in items:
+            hidden = any(isinstance(k, str) and (SENSITIVE_KEY.fullmatch(k)
+                         or k.lower() in sensitive_values) for k in (original, key))
+            if key != original and (key in value or key in result):
+                while f"[REDACTED-KEY-{suffix}]" in value or f"[REDACTED-KEY-{suffix}]" in result:
+                    suffix += 1
+                key = f"[REDACTED-KEY-{suffix}]"
+                suffix += 1
+            result[key] = "[REDACTED]" if hidden else scrub(item, preserved)
+        return result
     if not isinstance(value, str):
         return value
     if value in preserved:
         return value
-    value = re.sub(r"(?:\x1b\[|\x9b)[0-?]*[ -/]*[@-~]", "", value)
-    value = re.sub(r"(?:\x1b[\]PX^_]|\x9d|\x90|\x98|\x9e|\x9f).*?(?:\x07|\x9c|\x1b\\|$)", "", value, flags=re.S)
-    value = re.sub(r"\x1b[ -/]*[0-~]", "", value)
-    value = "".join(c for c in value if c in "\n\r\t" or unicodedata.category(c) not in ("Cc", "Cf", "Zl", "Zp"))
+    value = strip_controls(value, protect_api_boundary=True)
     try:
         decoded = strict_json(value)
         if isinstance(decoded, (dict, list)):
@@ -782,14 +805,14 @@ def scrub(value, preserved=frozenset()):
         identifier + r"\s*:\s*[A-Za-z_$][\w.$<>\[\]|, ?]*\s*=\s*"
         + rf"(?:(?P<typed>{quote}).*?(?P=typed)|[^\s,;}}\]]+)",
         r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\Z)",
-        r"\b(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}\b",
-        r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b",
-        r"\bsk-[A-Za-z0-9_-]{16,}",
-        r"\bxox[abprs]-[A-Za-z0-9-]{10,}",
-        r"\bAIza[0-9A-Za-z_-]{30,}",
-        r"\beyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+",
+        r"(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}",
+        r"(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})",
+        API_KEY_PATTERN.pattern,
+        r"xox[abprs]-[A-Za-z0-9-]{10,}",
+        r"AIza[0-9A-Za-z_-]{30,}",
+        r"eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+",
         r"(?i:\bBearer\s+)[A-Za-z0-9_.~+/-]+=*",
-        r"""(?i:\bAuthorization)["']?\s*:\s*["']?(?i:Basic|Bearer)\s+[A-Za-z0-9+/=_.~-]+""",
+        r"""(?i:Authorization)["']?\s*:\s*["']?(?i:Basic|Bearer)\s+[A-Za-z0-9+/=_.~-]+""",
         r"""[A-Za-z][A-Za-z0-9+.-]*://[^/\s:@"']*:[^@\s/"']+@""",
         r"""https://hooks\.slack\.com/services/[^\s"'<>]+""",
         r"""(?im)^[ \t]*[+-]?[ \t]*(?:set-)?cookie["']?[ \t]*:[^\r\n]*""",
