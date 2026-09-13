@@ -4,7 +4,7 @@
 **NFM Dashboard** (v0.11.0, pre-1.0) — Pod-to-Pod network observability dashboard for AWS CloudWatch Network Flow Monitor (NFM), plus a Bedrock AgentCore AI chatbot.
 Live: https://nfm-dashboard.atomai.click (Cognito login). AWS account `<ACCOUNT_ID>`, region `ap-northeast-2`.
 
-> Documentation, ADRs and code comments are English-only. Review output adopts English at ADR-014 activation. Korean operator conversation and product ko/en UI translations remain supported. Historical bilingual documents do not require new Korean duplicates. Follow the spec-driven workflow in `docs/superpowers/`.
+> New or updated documentation, ADRs and code comments are English-only. Review output adopts English at ADR-014 activation. Korean operator conversation and product ko/en UI translations remain supported. Historical bilingual documents do not require new Korean duplicates. Follow the spec-driven workflow in `docs/superpowers/`.
 
 ## Tech Stack
 - Node.js npm-workspaces monorepo, TypeScript throughout
@@ -48,7 +48,7 @@ bash scripts/build-push.sh <sha>   # build + push container image to ECR
 cd infra && npx cdk deploy <Stack> --require-approval never -c imageTag=<sha>
 #   ALL cdk commands need -c imageTag; non-App stacks may use -c imageTag=unused
 bash scripts/smoke.sh              # e2e smoke test
-python3 -m unittest discover -s scripts/pr-review -p test_role_review.py  # offline protocol
+python3 -m unittest discover -s scripts/pr-review -p 'test_*.py'  # offline protocol/executor tests
 ```
 
 <!-- AUTO-MANAGED:references -->

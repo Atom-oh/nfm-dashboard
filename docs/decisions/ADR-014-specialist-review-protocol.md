@@ -45,8 +45,8 @@ Sol replaces Terra in the review panel; application inference models are unchang
 
 The new protocol keeps immutable scope and blocked execution visible. App Router
 React files are treated conservatively because they may be server components.
-Codex/Claude remain mandatory independent primary roles. The `kiro-fable` tag is
-the historical compatibility name for the Opus slot, not the Claude Fable role.
+Codex/Claude remain mandatory independent primary roles. The shared `kiro-fable` tag maps to Opus and replaces the local `kiro-opus` tag;
+`claude-self` identifies Fable.
 
 English-only ADRs supersede the old bilingual template for new/updated records;
 operator Korean and product i18n remain supported. Existing historical records
@@ -66,3 +66,9 @@ collector must account for every path and record the policy hash; the report
 identifies excluded paths and claims no model review. Any reviewable source,
 unknown exclusion, source omission or failed collector remains blocking. New
 exclusions require their own reviewed policy change.
+
+For future edits to README, CHANGELOG, architecture and other current guides,
+update the English text and remove its stale Korean duplicate. Translate Korean-only
+material when revising it. Untouched legacy text and immutable historical evidence
+may retain their original language; new templates and new content are English.
+The runbook template follows this policy. Product UI localization is unchanged.
