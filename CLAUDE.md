@@ -4,7 +4,7 @@
 **NFM Dashboard** (v0.11.0, pre-1.0) — Pod-to-Pod network observability dashboard for AWS CloudWatch Network Flow Monitor (NFM), plus a Bedrock AgentCore AI chatbot.
 Live: https://nfm-dashboard.atomai.click (Cognito login). AWS account `<ACCOUNT_ID>`, region `ap-northeast-2`.
 
-> Repository documentation, ADRs, code comments and review artifacts are English-only by owner direction. Korean operator conversation and product ko/en UI translations remain supported. Historical bilingual documents do not require new Korean duplicates. Follow the spec-driven workflow in `docs/superpowers/`.
+> Documentation, ADRs and code comments are English-only. Review output adopts English at ADR-014 activation. Korean operator conversation and product ko/en UI translations remain supported. Historical bilingual documents do not require new Korean duplicates. Follow the spec-driven workflow in `docs/superpowers/`.
 
 ## Tech Stack
 - Node.js npm-workspaces monorepo, TypeScript throughout
