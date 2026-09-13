@@ -742,6 +742,13 @@ SENSITIVE_KEY = re.compile(
 )
 
 
+def strip_controls(value):
+    value = re.sub(r"(?:\x1b\[|\x9b)[0-?]*[ -/]*[@-~]", "", value)
+    value = re.sub(r"(?:\x1b[\]PX^_]|\x9d|\x90|\x98|\x9e|\x9f).*?(?:\x07|\x9c|\x1b\\|$)", "", value, flags=re.S)
+    value = re.sub(r"\x1b[ -/]*[0-~]", "", value)
+    return "".join(c for c in value if c in "\n\r\t" or unicodedata.category(c) not in ("Cc", "Cf", "Zl", "Zp"))
+
+
 def scrub(value, preserved=frozenset()):
     """Scrub decoded strings too: raw-JSON sanitizers miss escaped credentials."""
     if isinstance(value, list):
@@ -749,8 +756,8 @@ def scrub(value, preserved=frozenset()):
     if isinstance(value, dict):
         items = [(k, scrub(k, preserved), v) for k, v in value.items()]
         sensitive_values = {field for name, field in (("name", "value"), ("headername", "headervalue"))
-            if any(isinstance(key, str) and key.lower() == name and isinstance(item, str)
-                   and SENSITIVE_KEY.fullmatch(scrub(item, preserved)) for _, key, item in items)}
+            if any(isinstance(key, str) and strip_controls(key).lower() == name and isinstance(item, str)
+                   and SENSITIVE_KEY.search(strip_controls(item)) for key, _, item in items)}
         result, suffix = {}, 1
         for original, key, item in items:
             hidden = any(isinstance(k, str) and (SENSITIVE_KEY.fullmatch(k)
@@ -766,10 +773,7 @@ def scrub(value, preserved=frozenset()):
         return value
     if value in preserved:
         return value
-    value = re.sub(r"(?:\x1b\[|\x9b)[0-?]*[ -/]*[@-~]", "", value)
-    value = re.sub(r"(?:\x1b[\]PX^_]|\x9d|\x90|\x98|\x9e|\x9f).*?(?:\x07|\x9c|\x1b\\|$)", "", value, flags=re.S)
-    value = re.sub(r"\x1b[ -/]*[0-~]", "", value)
-    value = "".join(c for c in value if c in "\n\r\t" or unicodedata.category(c) not in ("Cc", "Cf", "Zl", "Zp"))
+    value = strip_controls(value)
     try:
         decoded = strict_json(value)
         if isinstance(decoded, (dict, list)):

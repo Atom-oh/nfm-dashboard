@@ -132,6 +132,23 @@ class RoleReviewTests(unittest.TestCase):
         for file in self.work.rglob("*.json"):
             self.assertNotIn("private-prose", file.read_text())
 
+    def test_named_credential_labels_are_classified_before_redaction(self):
+        for index, (name, value, label) in enumerate((
+            ("name", "value", "password:admin"),
+            ("headerName", "headerValue", "token=abc"),
+            ("name", "value", "tok\u200ben"),
+            ("na\u200bme", "value", "DATABASE_PASSWORD"),
+        )):
+            with self.subTest(label=label):
+                self.work = self.root / f"label-{index}"
+                self.prepare()
+                secret = "NAMED_SYNTHETIC_PRIVATE"
+                evidence = json.dumps({name: label, value: secret, "public": "PUBLIC_KEEP"})
+                result = self.record("codex", self.response("codex", checks=[{
+                    "path": FRONTEND, "evidence": evidence}]))
+                self.assertNotIn(secret, json.dumps(result))
+                self.assertIn("PUBLIC_KEEP", json.dumps(result))
+
     def test_secret_shaped_json_keys_are_scrubbed(self):
         secrets = ["ghp_" + "A" * 36, "AKIA" + "B" * 16]
         self.prepare()
