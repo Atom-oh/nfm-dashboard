@@ -4,7 +4,7 @@
 
 Accepted
 
-Date: 2026-09-13. The protocol is planned; implementation and activation need separate reviewed changes.
+Date: 2026-09-13. The protocol implementation is planned; activation needs a separate reviewed change.
 
 ## Context
 
@@ -34,7 +34,7 @@ waive missing or invalid coverage. Preserve existing project input exclusions,
 secret/state custody, context and budgets. No quota or billing limits are raised.
 Review instructions and output are English to avoid duplicate translations.
 
-This records intent and the planned library; it does not supersede the live legacy
+This records the approved protocol design; it does not supersede the live legacy
 workflow yet. The activation change must identify which older execution/coverage
 rules it replaces and preserve their remaining security and ownership decisions.
 See [the module contract](../../scripts/pr-review/README.md) for current interfaces
