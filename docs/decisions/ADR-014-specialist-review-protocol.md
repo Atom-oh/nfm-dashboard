@@ -2,8 +2,23 @@
 
 ## Status
 
-Accepted, 2026-09-13 (design; not live activation). Protocol library staged; the legacy workflow is still
-active. Activation must be reviewed separately with its input and runner controls.
+Accepted
+
+Date: 2026-09-13. The protocol is staged; activation needs a separate reviewed change.
+
+## Context
+
+The legacy matrix repeats four review lenses for three models. Duplicate analysis
+and unconditional chair calls increase latency. Inconsistent documentation also
+causes false positives. The owner requested specialist routing and English-only
+repository documentation, including ADRs, to reduce repeated context tokens.
+
+## Options Considered
+
+- Keep the matrix: retains repeated coverage but also its latency and duplication.
+- Remove panel members: reduces latency but loses independent model families.
+- Keep independent primary roles and route specialists: chosen; preserves the
+  pool while avoiding clearly irrelevant specialist work and empty chair calls.
 
 ## Decision
 
@@ -28,3 +43,23 @@ and offline checks. Model access and production execution require separate evide
 The target Sol configuration intentionally replaces the legacy Terra review slot
 for consistent fleet configuration. This is an explicit target selection, not a
 claim that Sol is already LIVE or a change to the application inference models.
+
+## Consequences
+
+The new protocol keeps immutable scope and blocked execution visible. App Router
+React files are treated conservatively because they may be server components.
+Codex/Claude remain mandatory independent primary roles. The `kiro-fable` tag is
+the historical compatibility name for the Opus slot, not the Claude Fable role.
+
+English-only ADRs supersede the old bilingual template for new/updated records;
+operator Korean and product i18n remain supported. Existing historical records
+need no duplicate rewrite. English review output becomes active only with the
+executor rollout. Missing Korean duplicates are not review defects. Deterministic
+summaries reduce chair authority to substantive adjudication; they cannot waive
+missing coverage. The legacy workflow remains active during this staging phase.
+
+## References
+
+- [Protocol contract](../../scripts/pr-review/README.md)
+- [Current workflow](../../.github/workflows/pr-review.yml)
+- [Project context](../../CLAUDE.md)
