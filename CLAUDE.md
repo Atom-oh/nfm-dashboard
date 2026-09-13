@@ -88,3 +88,13 @@ After exiting Plan mode (`/plan`), before starting implementation:
 ### ADR Numbering
 Find the highest number in `docs/decisions/ADR-*.md` and increment by 1.
 Format: `ADR-NNN-concise-title.md`
+
+## Specialist PR review
+
+CI enables `ROLE_REVIEW=1`: one applicable responsibility per model instead of
+repeating every lens. See [the current review contract](docs/pr-review-specialists.md).
+Codex and Claude retain full change-boundary checks from independent model families;
+Kiro covers AWS and operational responsibilities when applicable. Trusted routing
+owns NOT_APPLICABLE. Failed or incomplete required output is never a clean review.
+The chair adjudicates substantive candidates; it cannot waive coverage failures.
+This section supersedes earlier matrix-count and permissive dropout descriptions.
