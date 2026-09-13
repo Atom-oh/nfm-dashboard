@@ -1,7 +1,8 @@
 # Specialist review protocol
 
-Offline protocol; legacy review remains active. Executors/adapters need separate
-activation review. No Git fetch or model calls.
+The legacy review workflow remains active; activation is a separate reviewed
+change. The installed `role_review.py` library performs no Git or provider calls.
+The staged executors below do fetch Git data and invoke provider CLIs when run.
 
 | Tag | Requested model | Scope |
 | --- | --- | --- |
@@ -13,6 +14,42 @@ activation review. No Git fetch or model calls.
 `kiro-fable` means Opus. `ROLES` governs specialists; legacy files govern legacy
 execution. Kiro/Bedrock IDs differ. English is requested, not validated; configured
 IDs do not attest model weights.
+
+## Installed executors
+
+- `run-specialists.sh DIFF LENSES WORK` coordinates preparation, required-role
+  processes and aggregation. `LENSES` retains the legacy positional interface.
+- `prepare_roles.py` requires the trusted BASE checkout. It uses `gh api` to
+  resolve the merge base and fetches immutable Git objects without checking out
+  or executing PR-head code. Generic preparation reconstructs the diff from Git.
+- `run_role.py` invokes one configured provider for each required role. Kiro uses
+  private HOME/cwd and a no-tools preflight; Codex uses JSONL events and its final
+  reply file. `role-controls.sh` strips control bytes before publication.
+- `synthesize_roles.py` publishes a deterministic result or invokes a bounded
+  chair for substantive candidates. Its default primary/fallback are
+  `global.anthropic.claude-fable-5-1` / `global.anthropic.claude-opus-5` (Runtime IDs).
+
+Inputs use `HEAD_SHA`, `BASE_SHA`, and `GH_REPO` (or `GITHUB_REPOSITORY`).
+`REVIEW_CONTEXT_CAP` defaults to 24,000 bytes and may only be lowered.
+`PANEL_TIMEOUT`, `PANEL_RETRIES` and `KIRO_PREFLIGHT_TIMEOUT` retain their bounded
+executor settings. Chair time/turn/fallback settings come from project policy or
+legacy `synthesize.sh`; do not raise limits to obtain a passing review.
+
+Base `AGENTS.md` takes precedence over `CLAUDE.md`. Generated co-agent context
+must contain a `claude-md-sha` matching the first 12 SHA-256 characters of its
+canonical CLAUDE source. Missing, oversized or stale context blocks preparation;
+candidate context is checked but does not become trusted instructions.
+
+`role-input-scope.json` schema 1 records the existing exclusions: `package-lock.json`,
+the listed image/font/archive/PDF extensions, and generated dependency/build/test
+folders. `basenames`, `extensions`, parent `directories`, `prefixes` and optional
+`path_regexes` are string arrays. Only BASE policy narrows review scope; provenance
+lists exclusions. This keeps the existing input policy, not a new lockfile exemption.
+
+Optional `role-project.json` selects `prepare_project_roles.py` and chair/context
+policy. The adapter must match BASE bytes. Without an adapter, an optional
+`prepare_context_roles.py` hook must also match BASE bytes and cannot increase the
+context cap. These are extension contracts; this repository uses generic preparation.
 
 ## API and input
 
@@ -79,7 +116,8 @@ Limits: 95,000 diff bytes (UTF-8), 3,000 lines, 24,000 context bytes, <128 KiB
 request; projects may lower them. Oversize blocks. No chunk coordinator or
 combining partial PASS results; preserve custody/budgets.
 
-Run `python3 -m unittest discover -s scripts/pr-review -p test_role_review.py`.
+Run `python3 -m unittest discover -s scripts/pr-review -p 'test_*.py'` and
+`bash -n scripts/pr-review/run-specialists.sh scripts/pr-review/role-controls.sh scripts/pr-review/lib.sh`.
 Offline CI: `.github/workflows/pr-review-roles-tests.yml`. This stage installs the
 protocol and its tests; executor/adapter, limit and exact-HEAD publication tests
 remain activation requirements. Offline success does not establish live provider execution.

@@ -48,7 +48,7 @@ bash scripts/build-push.sh <sha>   # build + push container image to ECR
 cd infra && npx cdk deploy <Stack> --require-approval never -c imageTag=<sha>
 #   ALL cdk commands need -c imageTag; non-App stacks may use -c imageTag=unused
 bash scripts/smoke.sh              # e2e smoke test
-python3 -m unittest discover -s scripts/pr-review -p test_role_review.py  # offline protocol
+python3 -m unittest discover -s scripts/pr-review -p 'test_*.py'  # offline protocol/executor tests
 ```
 
 <!-- AUTO-MANAGED:references -->

@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "basenames": [
+    "package-lock.json"
+  ],
+  "extensions": [
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".webp",
+    ".ico",
+    ".pdf",
+    ".woff",
+    ".woff2",
+    ".zip"
+  ],
+  "directories": [
+    "node_modules",
+    "dist",
+    "out",
+    "build",
+    ".next",
+    "cdk.out",
+    "playwright-report",
+    "test-results"
+  ],
+  "prefixes": []
+}
