@@ -1,8 +1,7 @@
 # Specialist PR review
 
-CI assigns distinct responsibilities instead of asking every model to repeat
-every review lens. The trusted workflow enables this protocol with
-`ROLE_REVIEW=1`; legacy matrix entrypoints remain for regression fixtures.
+CI enables `ROLE_REVIEW=1` for distinct specialist responsibilities. Legacy
+matrix entrypoints remain for regression fixtures.
 
 | Slot | Configured model | Responsibility |
 | --- | --- | --- |
@@ -11,9 +10,8 @@ every review lens. The trusted workflow enables this protocol with
 | `kiro-sol` | `gpt-5.6-sol` | Deployment order, component contracts, lifecycle and recovery |
 | `claude-self` | `global.anthropic.claude-fable-5-1` | Authentication, data boundaries, requirements, API and ADR consistency |
 
-The shared `kiro-fable` tag identifies the Opus slot. Kiro catalog aliases differ
-from Bedrock inference-profile IDs. These are configured model identities, not
-attestation of the provider's internal routing or weights.
+`kiro-fable` identifies Opus. Kiro aliases and Bedrock IDs are separate;
+configured names do not attest provider routing or weights.
 
 ## Routing and evidence
 
@@ -23,13 +21,12 @@ Kiro roles run for applicable AWS and operational changes, including relevant
 documentation. Unfamiliar paths route conservatively. Only deterministic routing
 may record NOT_APPLICABLE; provider failures never do.
 
-The token-bearing Get PR diff step resolves the immutable merge base, validates
-its SHA, fetches both Git objects and exports `MERGE_BASE_SHA`. `prepare_roles.py`
-verifies the pinned base checkout and local commit objects, then generates the
-complete diff without a GitHub token, network call or head checkout. Standalone
-invocations without this trusted handoff retain the existing API/fetch path. The preparer reads reviewer instructions from the base Git object. Candidate context
-is checked for availability, size and generated-source freshness, then discarded.
-The shared context ceiling is 24,000 bytes; repositories may enforce a smaller one.
+Trusted Get PR diff resolves/fetches Git objects and passes `MERGE_BASE_SHA`.
+Preparation validates local commits from pinned BASE; the review step has no
+GitHub token and never fetches or checks out HEAD. Standalone calls without this
+handoff retain API/fetch compatibility. Instructions come from BASE objects;
+candidate context must exist, fit the 24,000-byte ceiling and match its generated
+source hash, then is discarded. Projects may lower that ceiling.
 
 Every result confirms its role, HEAD and reviewed paths. Host metadata binds it
 to the prepared request and records the process status. Nonzero exits, malformed
@@ -37,19 +34,17 @@ or empty reports, missing paths, invalid fingerprints, model selection errors,
 quota exhaustion and failed required roles block coverage. A JSON shape is
 evidence of protocol completion, not proof that the model found every defect.
 
-The common protocol accepts a complete diff within 3,000 lines and 95,000 UTF-8
-bytes. It blocks oversized input without awarding credit for a prefix. Existing
-repository-specific chunking is governed by its own implementation and budget;
-do not remove chunk attestations or raise limits to obtain a pass.
+One complete filtered diff may contain at most 3,000 lines and 95,000 UTF-8
+bytes. Larger input blocks; this path does not combine partial chunks or raise
+budgets.
 
 ## Execution and synthesis
 
-Each applicable model receives one specialist request. Both Kiro roles use fresh
-HOME/cwd directories and an explicit empty tool catalog with no MCP resources or
-hooks. Each active Kiro job first receives a fixed canary check without PR data;
-only an exact successful no-tools response permits the actual review. Its child
-environment excludes AWS and GitHub credentials. Errors remain visible; no
-automatic quota or billing changes are made.
+Each required model receives one request. Kiro uses private HOME/cwd and an empty
+tool/MCP/resource/hook catalog. Each active Kiro model must first return the exact
+successful no-tools response to a fixed canary without PR data. Its child
+environment excludes AWS and GitHub credentials. Failures remain visible;
+quota and billing limits never change automatically.
 
 Codex retains its read-only sandbox and configured Bedrock provider. Claude's
 specialist has no tools. The review step and its reviewer/chair process environments
@@ -60,10 +55,9 @@ a deterministic summary. Other valid results require chair adjudication. A
 coverage failure receives a deterministic failure; a chair cannot waive it.
 Minor/Info findings remain in the report.
 
-With all four roles active, the ordinary path uses four review calls and two
-Kiro startup checks. Adjudication adds one chair call; retries and fallback add
-calls only when needed. This reduces duplicate requests, but is not a measured
-wall-clock speedup. Per-role timing artifacts support before/after measurement.
+A successful run with all four roles uses four review calls and two Kiro startup
+checks. Adjudication, retries and fallback add calls only as needed. Timing
+artifacts measure runtime.
 
 ## Maintenance and release
 

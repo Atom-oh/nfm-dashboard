@@ -121,8 +121,8 @@ request; projects may lower them. Oversize blocks. No chunk coordinator or
 combining partial PASS results; preserve custody/budgets.
 
 Run `python3 -m unittest discover -s scripts/pr-review -p 'test_*.py'`.
-Check each shell entrypoint with `bash -n`; repeat for `run-specialists.sh`,
-`role-controls.sh` and `lib.sh`. Offline CI is
+Check each shell entrypoint with `bash -n`: `run-specialists.sh`, `run-panel.sh`,
+`synthesize.sh`, `role-controls.sh` and `lib.sh`. Offline CI is
 `.github/workflows/pr-review-roles-tests.yml`; local success does not establish
 live provider execution. Verify exact-head publication and runtime evidence.
 
