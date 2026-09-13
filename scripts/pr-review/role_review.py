@@ -747,13 +747,21 @@ def scrub(value, preserved=frozenset()):
     if isinstance(value, list):
         return [scrub(x, preserved) for x in value]
     if isinstance(value, dict):
-        keyed = {scrub(k, preserved): v for k, v in value.items()}
-        fields = {str(k).lower(): v for k, v in keyed.items()}
-        sensitive_values = {v for k, v in (("name", "value"), ("headername", "headervalue"))
-                            if isinstance(fields.get(k), str) and SENSITIVE_KEY.fullmatch(fields[k])}
-        return {k: "[REDACTED]" if isinstance(k, str) and (
-            SENSITIVE_KEY.fullmatch(k) or k.lower() in sensitive_values
-        ) else scrub(v, preserved) for k, v in keyed.items()}
+        items = [(k, scrub(k, preserved), v) for k, v in value.items()]
+        sensitive_values = {field for name, field in (("name", "value"), ("headername", "headervalue"))
+            if any(isinstance(key, str) and key.lower() == name and isinstance(item, str)
+                   and SENSITIVE_KEY.fullmatch(scrub(item, preserved)) for _, key, item in items)}
+        result, suffix = {}, 1
+        for original, key, item in items:
+            hidden = any(isinstance(k, str) and (SENSITIVE_KEY.fullmatch(k)
+                         or k.lower() in sensitive_values) for k in (original, key))
+            if key != original and (key in value or key in result):
+                while f"[REDACTED-KEY-{suffix}]" in value or f"[REDACTED-KEY-{suffix}]" in result:
+                    suffix += 1
+                key = f"[REDACTED-KEY-{suffix}]"
+                suffix += 1
+            result[key] = "[REDACTED]" if hidden else scrub(item, preserved)
+        return result
     if not isinstance(value, str):
         return value
     if value in preserved:

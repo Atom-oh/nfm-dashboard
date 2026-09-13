@@ -135,13 +135,16 @@ class RoleReviewTests(unittest.TestCase):
     def test_secret_shaped_json_keys_are_scrubbed(self):
         secrets = ["ghp_" + "A" * 36, "AKIA" + "B" * 16]
         self.prepare()
-        evidence = json.dumps({secrets[0]: {"nested": {secrets[1]: "example"}},
-                               "tok\u200ben": "hidden-value"})
+        evidence = json.dumps({secrets[0]: {"nested": {secrets[1]: "KEY_PUBLIC"}},
+                               "tok\u200ben": "hidden-value", "token": "other-hidden",
+                               "password:admin": "colon-private", "[REDACTED]": "LITERAL_PUBLIC"})
         self.record("codex", self.response("codex", checks=[
             {"path": FRONTEND, "evidence": evidence}]))
         published = (self.work / "slot/codex-result.json").read_text()
-        for secret in secrets + ["hidden-value"]:
+        for secret in secrets + ["hidden-value", "other-hidden", "colon-private"]:
             self.assertNotIn(secret, published)
+        self.assertIn("KEY_PUBLIC", published)
+        self.assertIn("LITERAL_PUBLIC", published)
 
     def test_frontend_routing_has_two_independent_full_scope_requests(self):
         raw = patch() + patch("dashboard/frontend/app/styles.css", "blue", "green")
