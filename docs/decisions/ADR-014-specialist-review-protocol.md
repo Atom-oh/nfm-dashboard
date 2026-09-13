@@ -44,12 +44,19 @@ The target Sol configuration intentionally replaces the legacy Terra review slot
 for consistent fleet configuration. This is an explicit target selection, not a
 claim that Sol is already LIVE or a change to the application inference models.
 
+A scope containing only files excluded by the existing, base-approved project
+input policy may complete as NOT_APPLICABLE with a PASS gate result. The trusted
+collector must account for every path and record the policy hash; the report
+identifies excluded paths and claims no model review. Any reviewable source,
+unknown exclusion, source omission or failed collector remains blocking. New
+exclusions require their own reviewed policy change.
+
 ## Consequences
 
 The new protocol keeps immutable scope and blocked execution visible. App Router
 React files are treated conservatively because they may be server components.
-Codex/Claude remain mandatory independent primary roles. The `kiro-fable` tag is
-the historical compatibility name for the Opus slot, not the Claude Fable role.
+Codex/Claude remain mandatory independent primary roles. The shared `kiro-fable` tag maps to Opus and replaces the local `kiro-opus` tag;
+`claude-self` identifies Fable.
 
 English-only ADRs supersede the old bilingual template for new/updated records;
 operator Korean and product i18n remain supported. Existing historical records
@@ -63,10 +70,3 @@ missing coverage. The legacy workflow remains active during this staging phase.
 - [Protocol contract](../../scripts/pr-review/README.md)
 - [Current workflow](../../.github/workflows/pr-review.yml)
 - [Project context](../../CLAUDE.md)
-
-A scope containing only files excluded by the existing, base-approved project
-input policy may complete as NOT_APPLICABLE with a PASS gate result. The trusted
-collector must account for every path and record the policy hash; the report
-identifies excluded paths and claims no model review. Any reviewable source,
-unknown exclusion, source omission or failed collector remains blocking. New
-exclusions require their own reviewed policy change.
