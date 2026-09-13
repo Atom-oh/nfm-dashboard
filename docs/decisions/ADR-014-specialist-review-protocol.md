@@ -4,7 +4,7 @@
 
 Accepted
 
-Date: 2026-09-13. The protocol implementation is planned; activation needs a separate reviewed change.
+Date: 2026-09-13. The protocol is staged; activation needs a separate reviewed change.
 
 ## Context
 

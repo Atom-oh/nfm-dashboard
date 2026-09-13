@@ -1,8 +1,5 @@
 # Specialist review protocol
 
-**Planned contract:** implementation and tests arrive in the following PR.
-The legacy review pipeline remains active.
-
 Offline protocol; legacy review remains active. Executors/adapters need separate
 activation review. No Git fetch or model calls.
 
@@ -82,10 +79,10 @@ Limits: 95,000 diff bytes (UTF-8), 3,000 lines, 24,000 context bytes, <128 KiB
 request; projects may lower them. Oversize blocks. No chunk coordinator or
 combining partial PASS results; preserve custody/budgets.
 
-After implementation lands, run `python3 -m unittest discover -s scripts/pr-review -p test_role_review.py`.
-Planned offline CI: `.github/workflows/pr-review-roles-tests.yml` (not installed yet). Activation also needs
-executor/adapter, limit and exact-HEAD publication tests; offline success proves
-no live provider execution.
+Run `python3 -m unittest discover -s scripts/pr-review -p test_role_review.py`.
+Offline CI: `.github/workflows/pr-review-roles-tests.yml`. This stage installs the
+protocol and its tests; executor/adapter, limit and exact-HEAD publication tests
+remain activation requirements. Offline success does not establish live provider execution.
 
 Sol replaces this repository's legacy Terra slot at activation; application
 inference models remain unchanged.
