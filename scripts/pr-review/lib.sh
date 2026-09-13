@@ -36,6 +36,9 @@ record_result() {
 # `consensus_hooks.py::_SECRET_RE`(AWS/GitHub/Slack/OpenAI·Anthropic/Google + generic
 # key=value)를 재사용하고, EKS Pod Identity 토큰(JWT 포맷) 탐지를 추가했다. 절대경로 read 자체를
 # 막지는 못하므로(스크럽은 값이 셀 출력에 실제로 나타난 *뒤*에만 작동) 잔여 위험은 그대로 남는다.
+# generic 미인용 key=value 패턴의 선행 경계는 `_` 를 허용한다(`[^A-Za-z0-9]`, co-agent 원본은
+# `[^A-Za-z0-9_]`) — 원본은 `KIRO_API_KEY=…`/`MY_ACCESS_TOKEN=…` 처럼 접두어가 `_` 로 이어지는
+# 환경변수 형태를 놓쳤다(PR #5 리뷰 L3-1). 이 러너의 실제 시크릿 이름이 그 형태다.
 scrub_secrets() {
   # PEM 은 여러 줄에 걸치므로 line-oriented sed 로는 본문을 못 지운다(헤더 줄만 매칭)
   # — awk 상태기계로 BEGIN..END 블록 전체를 마커 한 줄로 치환(첫 스테이지, 구조적 스크럽).
@@ -56,5 +59,5 @@ scrub_secrets() {
     -e 's/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/[REDACTED-JWT]/g' \
     -e 's/(AUTHORIZATION:[[:space:]]*(basic|bearer)[[:space:]]+)[A-Za-z0-9+\/=_.~-]{20,}/\1[REDACTED-GIT-CRED-HEADER]/gI' \
     -e 's/((api[_-]?key|aws_secret_access_key|aws_access_key_id|access[_-]?token|client[_-]?secret|secret|passwd|password|token)['"'"'"]?[[:space:]]*[:=][[:space:]]*['"'"'"])[^'"'"'"]{8,}(['"'"'"])/\1[REDACTED]\3/gI' \
-    -e 's/((^|[^A-Za-z0-9_])(api[_-]?key|aws_secret_access_key|aws_access_key_id|access[_-]?token|client[_-]?secret|secret|passwd|password|token)[[:space:]]*[:=][[:space:]]*)[A-Za-z0-9/+_-]{16,}/\1[REDACTED]/gI'
+    -e 's/((^|[^A-Za-z0-9])(api[_-]?key|aws_secret_access_key|aws_access_key_id|access[_-]?token|client[_-]?secret|secret|passwd|password|token)[[:space:]]*[:=][[:space:]]*)[A-Za-z0-9/+_-]{16,}/\1[REDACTED]/gI'
 }

@@ -64,12 +64,14 @@ Fix (account-side only — nothing in this repo can lift it):
    disappears when Kiro cells respond again.
 3. If nothing is done, the quota resets on the date printed in the banner.
 
-Verify locally without spending CI minutes (never echo the key):
+Verify locally without spending CI minutes (never echo the key; export it inside a
+subshell rather than placing it in `env … KEY=value` argv, which any same-host user can
+read from `/proc/<pid>/cmdline`):
 ```bash
-K=$(aws secretsmanager get-secret-value --secret-id /demo-platform/actions/AI-key \
-      --region ap-northeast-2 --query SecretString --output text | jq -r .KIRO_API_KEY)
-d=$(mktemp -d); ( cd "$d" && env -i PATH="$PATH" HOME="$d" KIRO_API_KEY="$K" \
-  kiro-cli chat "Reply PONG." --model gpt-5.6-terra --no-interactive --wrap never )
+d=$(mktemp -d); ( cd "$d" \
+  && export KIRO_API_KEY="$(aws secretsmanager get-secret-value --secret-id /demo-platform/actions/AI-key \
+       --region ap-northeast-2 --query SecretString --output text | jq -r .KIRO_API_KEY)" \
+  && HOME="$d" kiro-cli chat "Reply PONG." --model gpt-5.6-terra --no-interactive --wrap never )
 # exhausted → stderr "Monthly request limit reached", empty stdout, exit 0
 ```
 
@@ -91,10 +93,13 @@ Kiro to open base-branch files before flagging a symbol as missing. Keep in mind
   switch. Sibling repos (aws-fsi-demo, ttobak, claude-code-usage-dashboard) moved to a
   `tools: []` agent via `--agent pr-review-notools` for that reason. This repo keeps
   an explicit, non-empty list (`--trust-tools=read,grep,fs_read`).
-- Adopting the zero-tool agent here would make every Kiro cell answer `NO_DIFF` and
-  force-FAIL every PR. Doing so requires changing the workflow's COMMON/BASE CONTEXT
-  prompt and moving the diff to a capped argv embed in the same change — treat it as
-  an ADR-level change, not a flag tweak.
+- Adopting the zero-tool agent here would leave every Kiro cell unable to read the
+  diff, so it answers `NO_DIFF`-style text. `lib.sh::record_result` counts any
+  non-empty response, so coverage would look healthy (12/12) while no Kiro review
+  exists — worse than a forced FAIL, because the verdict then rests on the chair
+  alone. Doing so requires changing the workflow's COMMON/BASE CONTEXT prompt and
+  moving the diff to a capped argv embed in the same change — treat it as an
+  ADR-level change, not a flag tweak.
 - `--mode default` is a v3-only flag; do not add it. Do not switch to `--v3`: the v3
   engine ignores an agent's `tools: []` and its quota error shape differs
   (rc=1, message on stdout, JSON on stderr — both shapes are detected by
@@ -105,17 +110,24 @@ Kiro to open base-branch files before flagging a symbol as missing. Keep in mind
   the run as unverified.
 
 ## Verification
-- `bash tests/run-all.sh pr-review` — `tests/structure/test-pr-review-panel.sh` pins
-  the quota signatures, the non-empty `--trust-tools` list, the absence of
+These are manual steps — `tests/run-all.sh` is not wired into any workflow
+(`merge-verify.yml` and `pr-review.yml` do not run it).
+- [ ] `bash tests/run-all.sh pr-review` passes — `tests/structure/test-pr-review-panel.sh`
+  pins the quota signatures, the non-empty `--trust-tools` list, the absence of
   `--mode default`/`--v3`, the version log, and runs stub `kiro-cli`/`codex`
-  scenarios (quota v2/v3 shapes, healthy run, rc≠0 retry, Codex quoting Kiro
-  errors, synthesize banner).
-- After an account-side fix, the next `AI Code Review` run shows
+  scenarios (quota v2/v3 shapes, quota hit after tool chatter, healthy run, rc≠0
+  retry and rc≠0 exhaustion, Codex quoting Kiro errors, scrubbed quota marker,
+  synthesize banner).
+- [ ] After an account-side fix, the next `AI Code Review` run shows
   `Panel responded (12 / 12 cells)` and no `🚫` banner.
+- [ ] The panel step's first stderr line still reports kiro-cli 2.11.1 (or the new
+  version has been re-verified against step 3).
 
 ## Rollback
-The detection is additive: reverting `scripts/pr-review/run-panel.sh` and
-`synthesize.sh` restores the old retry-only behaviour (cells still die on quota, but
+The detection is additive: reverting `scripts/pr-review/run-panel.sh`,
+`synthesize.sh`, the `scrub_secrets` boundary change in `lib.sh` **and**
+`tests/structure/test-pr-review-panel.sh` (which pins the new behaviour and would
+otherwise fail) restores the old retry-only behaviour (cells still die on quota, but
 the banner names the wrong cause). No infrastructure or secret state is touched by
 this repo.
 
@@ -125,6 +137,8 @@ this repo.
   image is a separate change from this repository's review scripts.
 - Related: AWS-Demo-Platform 저장소의 ADR-011 (`--v3` drop) and ADR-015 (kiro-glm
   roster removal) — cross-repo references, not this repo's ADR numbering.
+- Last verified: 2026-09-13 (stub harness only; live kiro-cli 2.11.1 behaviour was
+  verified in claude-code-usage-dashboard PR #33, not re-run here)
 
 ---
 
@@ -182,12 +196,14 @@ reason=MONTHLY_REQUEST_COUNT` 를 반환. v2 엔진(이 패널이 쓰는 엔진)
    배너가 사라집니다.
 3. 아무 조치도 없으면 배너에 찍힌 날짜에 한도가 리셋됩니다.
 
-CI 분을 쓰지 않고 로컬에서 확인(키를 절대 echo 하지 않을 것):
+CI 분을 쓰지 않고 로컬에서 확인(키를 절대 echo 하지 않을 것; `env … KEY=value` argv 에
+넣으면 같은 호스트의 다른 사용자가 `/proc/<pid>/cmdline` 으로 읽을 수 있으니 서브셸에서
+`export` 로 넘긴다):
 ```bash
-K=$(aws secretsmanager get-secret-value --secret-id /demo-platform/actions/AI-key \
-      --region ap-northeast-2 --query SecretString --output text | jq -r .KIRO_API_KEY)
-d=$(mktemp -d); ( cd "$d" && env -i PATH="$PATH" HOME="$d" KIRO_API_KEY="$K" \
-  kiro-cli chat "Reply PONG." --model gpt-5.6-terra --no-interactive --wrap never )
+d=$(mktemp -d); ( cd "$d" \
+  && export KIRO_API_KEY="$(aws secretsmanager get-secret-value --secret-id /demo-platform/actions/AI-key \
+       --region ap-northeast-2 --query SecretString --output text | jq -r .KIRO_API_KEY)" \
+  && HOME="$d" kiro-cli chat "Reply PONG." --model gpt-5.6-terra --no-interactive --wrap never )
 # 소진 시 → stderr "Monthly request limit reached", 빈 stdout, exit 0
 ```
 
@@ -208,9 +224,12 @@ lens 프롬프트의 BASE CONTEXT 블록은 심볼 "없음"을 지적하기 전�
   claude-code-usage-dashboard)는 그래서 `tools: []` 에이전트(`--agent pr-review-notools`)로
   옮겼습니다. 이 repo 는 명시적·비어있지 않은 목록(`--trust-tools=read,grep,fs_read`)을
   유지합니다.
-- 여기서 무툴 에이전트를 채택하면 모든 Kiro 셀이 `NO_DIFF` 로 답해 매 PR 이 강제 FAIL
-  됩니다. 채택하려면 워크플로의 COMMON/BASE CONTEXT 프롬프트 변경과 diff 의 캡 적용 argv
-  임베드 전환을 같은 변경에서 해야 합니다 — 플래그 조정이 아닌 ADR 수준 변경으로 다룰 것.
+- 여기서 무툴 에이전트를 채택하면 모든 Kiro 셀이 diff 를 읽지 못해 `NO_DIFF` 류 텍스트로
+  답합니다. `lib.sh::record_result` 는 비어있지 않은 응답을 모두 집계하므로 커버리지는
+  정상(12/12)으로 보이면서 실제 Kiro 리뷰는 없는 상태가 됩니다 — 판정이 체어 혼자에게
+  걸리므로 강제 FAIL 보다 위험합니다. 채택하려면 워크플로의 COMMON/BASE CONTEXT 프롬프트
+  변경과 diff 의 캡 적용 argv 임베드 전환을 같은 변경에서 해야 합니다 — 플래그 조정이 아닌
+  ADR 수준 변경으로 다룰 것.
 - `--mode default` 는 v3 전용 플래그이므로 추가하지 마세요. `--v3` 로 바꾸지 마세요: v3
   엔진은 에이전트의 `tools: []` 를 무시하고 한도 오류 형태도 다릅니다(rc=1, 메시지는
   stdout, JSON 은 stderr — 두 형태 모두 `KIRO_QUOTA_RE` 가 잡지만 패널은 v2 에서만 검증됨).
@@ -219,17 +238,24 @@ lens 프롬프트의 BASE CONTEXT 블록은 심볼 "없음"을 지적하기 전�
   않으므로 이 문구가 나올 일이 없어야 하며, 나온다면 그 실행은 검증되지 않은 것으로 취급합니다.
 
 ## 검증
-- `bash tests/run-all.sh pr-review` — `tests/structure/test-pr-review-panel.sh` 가 한도
-  시그니처, 비어있지 않은 `--trust-tools` 목록, `--mode default`/`--v3` 부재, 버전 로그를
-  핀하고 스텁 `kiro-cli`/`codex` 시나리오(한도 v2/v3 형태, 정상 실행, rc≠0 재시도, Codex 의
-  Kiro 오류 인용, synthesize 배너)를 실행합니다.
-- 계정 측 조치 후 다음 `AI Code Review` 실행에서 `Panel responded (12 / 12 cells)` 와 `🚫`
-  배너 부재를 확인합니다.
+수동 절차입니다 — `tests/run-all.sh` 는 어떤 워크플로에도 연결돼 있지 않습니다
+(`merge-verify.yml`·`pr-review.yml` 모두 실행하지 않음).
+- [ ] `bash tests/run-all.sh pr-review` 통과 — `tests/structure/test-pr-review-panel.sh` 가
+  한도 시그니처, 비어있지 않은 `--trust-tools` 목록, `--mode default`/`--v3` 부재, 버전
+  로그를 핀하고 스텁 `kiro-cli`/`codex` 시나리오(한도 v2/v3 형태, 툴 chatter 뒤 한도, 정상
+  실행, rc≠0 재시도와 rc≠0 소진, Codex 의 Kiro 오류 인용, 스크럽된 한도 마커, synthesize
+  배너)를 실행합니다.
+- [ ] 계정 측 조치 후 다음 `AI Code Review` 실행에서 `Panel responded (12 / 12 cells)` 와
+  `🚫` 배너 부재를 확인합니다.
+- [ ] 패널 스텝 첫 stderr 줄이 여전히 kiro-cli 2.11.1 을 보고하는지(또는 새 버전을 3번 기준으로
+  재검증했는지) 확인합니다.
 
 ## 롤백
-감지 로직은 additive 입니다: `scripts/pr-review/run-panel.sh` 와 `synthesize.sh` 를 되돌리면
-옛 재시도 전용 동작으로 복귀합니다(한도 소진 시 셀은 여전히 죽지만 배너가 원인을 잘못
-말함). 이 repo 는 인프라나 시크릿 상태를 건드리지 않습니다.
+감지 로직은 additive 입니다: `scripts/pr-review/run-panel.sh`, `synthesize.sh`, `lib.sh` 의
+`scrub_secrets` 경계 변경, **그리고** 새 동작을 핀하는(되돌리지 않으면 실패하는)
+`tests/structure/test-pr-review-panel.sh` 를 함께 되돌리면 옛 재시도 전용 동작으로
+복귀합니다(한도 소진 시 셀은 여전히 죽지만 배너가 원인을 잘못 말함). 이 repo 는 인프라나
+시크릿 상태를 건드리지 않습니다.
 
 ## 참고
 - 러너 이미지와 kiro-cli 버전은 AWS-Demo-Platform 저장소
@@ -237,3 +263,5 @@ lens 프롬프트의 BASE CONTEXT 블록은 심볼 "없음"을 지적하기 전�
   리뷰 스크립트와 별개의 변경입니다.
 - 관련: AWS-Demo-Platform 저장소의 ADR-011(`--v3` 드롭), ADR-015(kiro-glm 로스터 제외) —
   이 repo 의 ADR 번호가 아닌 cross-repo 참조입니다.
+- 최종 검증일: 2026-09-13 (스텁 하네스만; 실제 kiro-cli 2.11.1 동작은
+  claude-code-usage-dashboard PR #33 에서 검증, 여기서 재실행하지 않음)

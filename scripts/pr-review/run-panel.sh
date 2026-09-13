@@ -8,7 +8,7 @@
 # kiro-cli 는 stdin 을 안 읽고 큰 diff 를 argv 에 직접 넣으면 커널 MAX_ARG_STRLEN(128KiB)에 걸려
 # "Argument list too long"로 죽는다(아래 KIRO_INSTRUCTION 코멘트 참조) → kiro 에게는 diff 파일
 # 경로만 주고 자기 신뢰 도구(read/fs_read)로 읽게 한다. timeout 백스톱 + 비대화형 플래그로 멈춤
-# 방지. 슬롯이 비거나 종료코드가 0이 아니면 최대 PANEL_RETRIES 회 재시도(codex의 gpt-5.6-sol/
+# 방지. 슬롯이 비면(Kiro 는 rc≠0 도) 최대 PANEL_RETRIES 회 재시도(codex의 gpt-5.6-sol/
 # bedrock-mantle 등 transient 흡수) — 단 Kiro 월간 요청 한도 소진(아래 KIRO_QUOTA_RE)은
 # non-transient 라 재시도 없이 즉시 중단한다. 매 시도마다 $DIFF 를 다시 연다. 모든 셀(모델 수 ×
 # lens 수)이 병렬(&+wait) — 벽시계 ≈ 최슬로우 셀 하나, 순차합 아님.
@@ -36,7 +36,9 @@ if [ "${#LENS_FILES[@]}" -eq 0 ]; then
   exit 1
 fi
 
-# ROOT CAUSE #1 (verified by direct test on the installed kiro-cli 2.9.0): headless `kiro-cli chat`
+# ROOT CAUSE #1 (verified by direct test on the installed kiro-cli 2.9.0; #1/#2 were not re-run on
+# 2.11.1 — the quota/trust-tools notes further below are 2.11.1 findings and the stdin/argv behaviour
+# is assumed unchanged; the version log above exists so a change can be traced): headless `kiro-cli chat`
 # does NOT read STDIN — not even with the EXACT documented pipe pattern (`cat diff | kiro-cli chat
 # --no-interactive "..."`, no extra flags) → it still answers NO_DIFF. The kiro docs say stdin
 # piping works, but this build doesn't honor it. codex DOES read stdin — its invocation below is
@@ -66,8 +68,10 @@ fi
 # @{MCPSERVERNAME}/` 만 찍고 **무시**하며, `--mode default` 는 v3 전용 플래그다. 그 repo 들은
 # `tools: []` 에이전트(`--agent pr-review-notools`, v2 엔진)로 갈아탔다. 이 repo 는 반대로
 # Kiro 가 diff 파일과 base 체크아웃을 *읽어야* 하는 설계(위 ROOT CAUSE #1/#2 + BASE CONTEXT)
-# 라 무툴 에이전트를 채택하지 않는다 — 채택하면 Kiro 8셀 전부 NO_DIFF 로 응답해 매 PR 이
-# 강제 FAIL 된다. 대신 여기서는 명시적 툴 이름 목록(`--trust-tools=read,grep,fs_read`, 빈 값
+# 라 무툴 에이전트를 채택하지 않는다 — 채택하면 Kiro 8셀 전부 diff 를 읽지 못해 NO_DIFF 류
+# 응답을 내는데, lib.sh::record_result 는 비어있지 않은 응답을 모두 집계하므로 커버리지는
+# 정상(12/12)으로 보이면서 실제 Kiro 리뷰는 없는 상태가 된다(강제 FAIL 보다 위험: 판정은
+# 체어 몫). 대신 여기서는 명시적 툴 이름 목록(`--trust-tools=read,grep,fs_read`, 빈 값
 # 아님)을 유지한다. 내장 툴 이름은 fs_read → read 로 바뀌었고 `fs_read` 는 호환용으로만 남겨
 # 둔 것이다. 무툴 격리로 전환하려면 워크플로의 COMMON/BASE CONTEXT 프롬프트와 diff 전달
 # 경로(argv embed + KIRO_DIFF_CAP)를 함께 바꿔야 하므로 별도 PR(ADR)로 다룬다.
@@ -86,26 +90,46 @@ fi
 # (이 스크립트 자신을 고치는 PR 이 그 예) 부분 응답이 한도 소진으로 오분류될 수 있다.
 KIRO_QUOTA_RE='Monthly request limit reached|MONTHLY_REQUEST_COUNT|UsageLimitReachedError'
 
-# 한 셀을 최대 $RETRIES 회 실행 — 슬롯이 비거나 rc≠0 이면 재시도(transient). 백그라운드로 호출.
+# 한 셀을 최대 $RETRIES 회 실행 — 슬롯이 비면 재시도(transient). 백그라운드로 호출.
 #   try_panel <provider> <slot> <err> <cmd...>   (stdin=$DIFF, stdout=slot, stderr=err)
 # 한도 소진은 non-transient 라 재시도하지 않고 즉시 중단 — `$slot.quota` 마커를 남기고 슬롯을
 # 비운다. Codex stderr 에는 입력 diff 도 들어가므로 Kiro 전용 시그니처는 Kiro 프로세스에만
 # 적용한다(diff 가 이 문구를 인용해도 Codex 셀이 오분류되지 않도록).
+#
+# 판정 순서(PR #5 리뷰 L2-2): 한도 검사를 성공 판정 **앞**에 둔다. v2 엔진은 툴 호출 chatter
+# ("Reading file: …")를 stdout 에 찍으므로, 첫 요청은 통과하고 후속 turn 에서 한도에 걸리면
+# stdout 비어있지 않음 + stderr 시그니처 + rc=0 이 된다 — 성공 판정을 먼저 하면 그 셀이
+# "응답"으로 집계되고 `.quota` 마커도 남지 않는다. Kiro stderr 에는 diff 가 실리지 않으므로
+# (diff 는 툴로 읽음) 먼저 검사해도 diff 인용 오탐은 없다.
+#
+# rc 게이트는 Kiro 전용(AWS-Demo-Platform PR #118 리뷰와 동일 결론): Kiro 는 rc=0 도 요구한다
+# — `--v3` 한도 형태는 rc=1 + stdout 메시지고, timeout 에 잘린 Kiro stdout 은 리뷰가 아닌 툴
+# chatter 다. Codex 는 base 의 "비어있지 않은 슬롯" 규칙을 유지한다 — timeout 에 잘린 부분
+# 리뷰를 rc 때문에 다시 돌리면 더 빈 시도로 덮어쓸 수 있고, Codex stdout 은 리뷰 본문이다.
+# 재시도 소진 후에도 rc≠0 인 Kiro 슬롯은 비운다(PR #5 리뷰 L2-1): lib.sh::record_result 는
+# `[ -s "$slot" ]` 만 보므로, 여기서 비우지 않으면 3회 모두 timeout 으로 잘린 chatter 가
+# "responded" 로 세어져 커버리지 floor 를 통과한다. `$slot.rc` 는 진단용(아래 skipped 로그).
+# `.quota` 마커는 쓰는 시점에 scrub_secrets 를 거친다(L3-2): $SLOT 은 집계 블록 전에 job 이
+# 죽으면 그대로 남는 디스크 파일이다.
 try_panel() {
   local provider="$1" slot="$2" err="$3"; shift 3
   local a rc=1
   for a in $(seq 1 "$RETRIES"); do
     "$@" > "$slot" 2>"$err" < "$DIFF"; rc=$?
-    [ -s "$slot" ] && [ "$rc" -eq 0 ] && break
     if [ "$provider" = kiro ] && grep -qE "$KIRO_QUOTA_RE" "$err" 2>/dev/null; then
       grep -E "$KIRO_QUOTA_RE|limits reset on" "$err" \
-        | sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' | head -3 > "$slot.quota"
+        | sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' | scrub_secrets | head -3 > "$slot.quota"
       : > "$slot"; rc=1
       echo "[quota] $(basename "$slot" .md) — monthly request limit reached, not retrying" >&2
       break
     fi
+    if [ -s "$slot" ] && { [ "$provider" != kiro ] || [ "$rc" -eq 0 ]; }; then break; fi
     [ "$a" -lt "$RETRIES" ] && echo "[retry $a/$RETRIES] $(basename "$slot" .md)" >&2
   done
+  if [ "$provider" = kiro ] && [ "$rc" -ne 0 ] && [ -s "$slot" ]; then
+    echo "[discard] $(basename "$slot" .md) — rc=$rc after $RETRIES attempt(s); partial stdout is not a review, not counted" >&2
+    : > "$slot"
+  fi
   echo "$rc" > "$slot.rc"
 }
 
@@ -221,6 +245,6 @@ for e in "$SLOT"/*.err; do
   [ -s "$e" ] || continue
   b="$(basename "$e" .err)"
   [ -s "$SLOT/$b.md" ] && continue   # 응답 성공이면 건너뜀
-  echo "--- [$b] skipped; stderr (last 25 lines, scrubbed) ---" >&2
+  echo "--- [$b] skipped (rc=$(cat "$SLOT/$b.md.rc" 2>/dev/null || echo '?')); stderr (last 25 lines, scrubbed) ---" >&2
   tail -25 "$e" | scrub_secrets >&2
 done

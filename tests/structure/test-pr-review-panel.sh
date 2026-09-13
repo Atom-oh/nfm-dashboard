@@ -116,6 +116,96 @@ EOF2
     assert_grep_match "retry can recover a transient Kiro failure" 'Panel responded \(3 / 3 cells\)' "$PANEL_OUT"
     rm -f "$T_STUB/kiro-cli.attempts"
 
+    # (PR #5 리뷰 L2-1) 재시도를 전부 rc≠0 으로 소진한 Kiro 셀 — 마지막 시도의 부분 stdout(툴
+    # chatter)이 슬롯에 남은 채 record_result 의 `[ -s ]` 만 통과해 "responded" 로 세어지면 안 된다.
+    cat > "$T_STUB/kiro-cli" <<'EOF2'
+#!/bin/bash
+[ "${1:-}" = "--version" ] && { echo "kiro-cli test"; exit 0; }
+echo "Reading file: /tmp/diff.txt"; echo "killed by timeout" >&2; exit 124
+EOF2
+    PANEL_OUT=$(PATH="$T_STUB:$PATH" PANEL_TIMEOUT=30 PANEL_RETRIES=3 \
+        bash "$PANEL" "$T_STUB/diff.txt" "$T_STUB/lenses" "$T_STUB/work" 2>&1 || true)
+    assert_grep_match "exhausted rc≠0 Kiro attempts are discarded, not counted" '\[discard\] kiro-opus-L2 — rc=124' "$PANEL_OUT"
+    assert_grep_match "exhausted rc≠0 Kiro cells drop out of the responded count" 'Panel responded \(1 / 3 cells\): codex/L2' "$PANEL_OUT"
+    KIRO_SLOT_BYTES=$(cat "$T_STUB"/work/slot/kiro-*.md 2>/dev/null | wc -c | tr -d ' ')
+    assert_eq "exhausted rc≠0 Kiro slots are empty for the chair" "0" "$KIRO_SLOT_BYTES"
+    assert_file_exists "exhausted rc≠0 Kiro cells still force coverage-severe" "$T_STUB/work/coverage-severe.flag"
+    assert_grep_match "exhausted rc≠0 Kiro cell exposes its rc in the skipped log" '\[kiro-opus-L2\] skipped \(rc=124\)' "$PANEL_OUT"
+
+    # (PR #5 리뷰 L2-2) 전환 실행(transition run): 첫 요청은 통과해 stdout 에 툴 chatter 가 있고
+    # 후속 turn 에서 한도에 걸려 stderr 시그니처 + rc=0 — 성공 판정보다 한도 검사가 먼저여야 한다.
+    cat > "$T_STUB/kiro-cli" <<'EOF2'
+#!/bin/bash
+[ "${1:-}" = "--version" ] && { echo "kiro-cli test"; exit 0; }
+echo "Reading file: /tmp/diff.txt"
+echo "✓ Successfully read 2 lines"
+printf 'Monthly request limit reached\nThe limits reset on 10/01.\n' >&2
+exit 0
+EOF2
+    PANEL_OUT=$(PATH="$T_STUB:$PATH" PANEL_TIMEOUT=30 PANEL_RETRIES=3 \
+        bash "$PANEL" "$T_STUB/diff.txt" "$T_STUB/lenses" "$T_STUB/work" 2>&1 || true)
+    assert_grep_match "quota hit after tool chatter (rc=0, stdout non-empty) is still detected" '\[quota\] kiro-opus-L2' "$PANEL_OUT"
+    assert_grep_no_match "quota hit after tool chatter is not retried" '\[retry ' "$PANEL_OUT"
+    assert_grep_match "quota hit after tool chatter is not counted as a response" 'Panel responded \(1 / 3 cells\): codex/L2' "$PANEL_OUT"
+    assert_file_exists "quota hit after tool chatter leaves kiro-quota.flag" "$T_STUB/work/kiro-quota.flag"
+
+    # (L3-2) `.quota` 마커는 쓰는 시점에 스크럽된다 — 집계 전에 job 이 죽어도 원시 값이 남지 않게.
+    cat > "$T_STUB/kiro-cli" <<'EOF2'
+#!/bin/bash
+[ "${1:-}" = "--version" ] && { echo "kiro-cli test"; exit 0; }
+printf 'Monthly request limit reached for KIRO_API_KEY=abcdefghijklmnopqrstuvwxyz0123\n' >&2
+exit 0
+EOF2
+    cat > "$T_STUB/codex" <<'EOF2'
+#!/bin/bash
+cat > /dev/null; echo "no findings"; sleep 3
+EOF2
+    ( PATH="$T_STUB:$PATH" PANEL_TIMEOUT=30 PANEL_RETRIES=3 \
+        bash "$PANEL" "$T_STUB/diff.txt" "$T_STUB/lenses" "$T_STUB/work" >/dev/null 2>&1 || true ) &
+    PANEL_PID=$!
+    QUOTA_RAW=""
+    for _ in $(seq 1 80); do
+        QUOTA_RAW=$(cat "$T_STUB"/work/slot/kiro-opus-L2.md.quota 2>/dev/null || true)
+        [ -n "$QUOTA_RAW" ] && break
+        sleep 0.1
+    done
+    wait "$PANEL_PID" 2>/dev/null || true
+    assert_grep_match "quota marker is written already scrubbed (KIRO_API_KEY=<value> redacted)" 'KIRO_API_KEY=\[REDACTED\]' "$QUOTA_RAW"
+    assert_grep_no_match "quota marker never holds the raw key value" 'abcdefghijklmnopqrstuvwxyz0123' "$QUOTA_RAW"
+    cat > "$T_STUB/codex" <<'EOF2'
+#!/bin/bash
+cat > /dev/null; echo "no findings"
+EOF2
+    # (L3-1) lib.sh::scrub_secrets 의 generic key=value 패턴이 `_` 접두어 환경변수 이름을 잡는지 직접 확인.
+    SCRUBBED=$(echo 'KIRO_API_KEY=abcdefghijklmnopqrstuvwxyz0123 and MY_ACCESS_TOKEN=abcdefghijklmnopqrstuvwxyz0123' \
+        | bash -c '. scripts/pr-review/lib.sh; scrub_secrets')
+    assert_eq "scrub_secrets redacts underscore-prefixed KEY=value env forms" \
+        "KIRO_API_KEY=[REDACTED] and MY_ACCESS_TOKEN=[REDACTED]" "$SCRUBBED"
+
+    # Codex 는 base 의 "비어있지 않은 슬롯" 규칙을 유지한다(AWS-Demo-Platform PR #118 리뷰와 동일):
+    # timeout 에 잘린 부분 리뷰(rc=124)를 rc 때문에 다시 돌려 더 빈 시도로 덮어쓰지 않는다.
+    cat > "$T_STUB/kiro-cli" <<'EOF2'
+#!/bin/bash
+[ "${1:-}" = "--version" ] && { echo "kiro-cli test"; exit 0; }
+echo "> no findings"
+EOF2
+    cat > "$T_STUB/codex" <<'EOF2'
+#!/bin/bash
+cat > /dev/null
+printf 'attempt\n' >> "$0.attempts"
+echo "partial review cut by timeout"; exit 124
+EOF2
+    PANEL_OUT=$(PATH="$T_STUB:$PATH" PANEL_TIMEOUT=30 PANEL_RETRIES=3 \
+        bash "$PANEL" "$T_STUB/diff.txt" "$T_STUB/lenses" "$T_STUB/work" 2>&1 || true)
+    CODEX_ATTEMPTS=$(wc -l < "$T_STUB/codex.attempts" | tr -d ' ')
+    assert_eq "Codex partial output with rc≠0 is kept, not re-run (rc gate is Kiro-only)" "1" "$CODEX_ATTEMPTS"
+    assert_grep_match "Codex partial output still counts under the base non-empty rule" 'Panel responded \(3 / 3 cells\)' "$PANEL_OUT"
+    rm -f "$T_STUB/codex.attempts"
+    cat > "$T_STUB/codex" <<'EOF2'
+#!/bin/bash
+cat > /dev/null; echo "no findings"
+EOF2
+
     # Codex 는 입력 diff 를 stderr 에도 출력한다. Kiro 오류 문자열을 인용하는 정상 리뷰가
     # 한도 소진으로 폐기되면 안 된다(시그니처는 Kiro 프로세스에만 적용).
     cat > "$T_STUB/codex" <<'EOF2'
