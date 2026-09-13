@@ -27,7 +27,7 @@ The token-bearing Get PR diff step resolves the immutable merge base, validates
 its SHA, fetches both Git objects and exports `MERGE_BASE_SHA`. `prepare_roles.py`
 verifies the pinned base checkout and local commit objects, then generates the
 complete diff without a GitHub token, network call or head checkout. Standalone
-invocations without this trusted handoff retain the existing API/fetch path. It reads reviewer instructions from the base Git object. Candidate context
+invocations without this trusted handoff retain the existing API/fetch path. The preparer reads reviewer instructions from the base Git object. Candidate context
 is checked for availability, size and generated-source freshness, then discarded.
 The shared context ceiling is 24,000 bytes; repositories may enforce a smaller one.
 
