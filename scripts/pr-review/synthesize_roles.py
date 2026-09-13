@@ -48,7 +48,14 @@ def legacy_limit(name, fallback=None):
     source = Path(__file__).with_name("synthesize.sh")
     match = re.search(rf"{name}:-([0-9]+)", source.read_text()) if source.exists() else None
     default = match.group(1) if match else fallback
-    return int(os.environ.get(name, default)) if default is not None else None
+    value = os.environ.get(name, default)
+    if value is None:
+        return None
+    value = int(value)
+    if value <= 0:
+        raise ValueError(f"{name} must be positive")
+    return value
+
 
 
 def chair_options(policy):

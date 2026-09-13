@@ -196,6 +196,17 @@ def scrub(text):
     return process.stdout
 
 
+def preserve_stdout_error(output, error):
+    lines = controls(output).lstrip().splitlines()
+    first = re.sub(r"^> ?", "", lines[0]) if lines else ""
+    # JSON review evidence and JSONL events are not text-mode CLI diagnostics.
+    if first.startswith(("{", "```")):
+        return error
+    if first.startswith("You have reached the limit for overages"):
+        first = "UsageLimitReachedError: stdout account limit"
+    return error + "\n" + first if diagnostic_failure(first) else error
+
+
 def run(work, tag):
     plan = json.loads((work / "role-plan.json").read_text())
     role = plan["roles"][tag]
@@ -251,6 +262,7 @@ def run(work, tag):
                             command, cwd, kiro_environment(cwd, environment), "", timeout
                         )
                         error = controls(error)
+                        error = preserve_stdout_error(output, error)
                         if FAILURE.search(error) or diagnostic_failure(error):
                             code = code or 1
                             break
@@ -294,6 +306,7 @@ def run(work, tag):
                     if not complete:
                         code = code or 1
                 error = controls(error)
+                error = preserve_stdout_error(output, error)
                 if diagnostic_failure(error):
                     code = code or 1
                     break

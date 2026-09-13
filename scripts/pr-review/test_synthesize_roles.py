@@ -123,5 +123,20 @@ class SynthesisTests(unittest.TestCase):
             self.assertFalse(self.module.valid(output, status))
 
 
+    def test_generic_budget_overrides(self):
+        limits = {"CHAIR_MAX_TURNS": "8", "CHAIR_FALLBACK_MAX_TURNS": "12",
+                  "CHAIR_FAST_FAIL_S": "5"}
+        with patch.dict(os.environ, limits):
+            options = self.module.chair_options({})
+        self.assertEqual(options["turns"], (8, 12))
+        self.assertEqual(options["fast_fail"], 5)
+        for name in limits:
+            for value in ("0", "-1"):
+                with self.subTest(name=name, value=value), \
+                        patch.dict(os.environ, {name: value}), \
+                        self.assertRaises(ValueError):
+                    self.module.legacy_limit(name)
+
+
 if __name__ == "__main__":
     unittest.main()

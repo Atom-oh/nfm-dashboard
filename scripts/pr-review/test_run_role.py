@@ -263,5 +263,45 @@ class RoleRecordingTests(unittest.TestCase):
         self.assertNotIn(self.private_value, json.dumps(result))
         self.assert_private_response_removed()
 
+    def test_claude_stdout_quota_blocks_retry(self):
+        calls = []
+        def execute(command, *arguments):
+            calls.append(command)
+            if len(calls) == 1:
+                return 1, "Error: insufficient credits\n", ""
+            return 0, json.dumps(self.harness.response("claude-self")), ""
+        self.run_recording(tag="claude-self", execute=execute)
+        result = self.harness.read("slot/claude-self-result.json")
+        self.assertEqual(len(calls), 1)
+        self.assertFalse(result["valid"])
+        self.assertIn("quota_diagnostic", result["failure_codes"])
+        self.assert_private_response_removed()
+
+    def test_kiro_stdout_quota_is_retained(self):
+        calls = []
+        def execute(command, *arguments):
+            calls.append(command)
+            if "preflight-canary.txt" in command[2]:
+                return 0, "NO_TOOLS\n", ""
+            return 0, "\x1b[32m> UsageLimitReachedError\x1b[0m\n", ""
+        self.run_recording(tag="kiro-sol", execute=execute)
+        result = self.harness.read("slot/kiro-sol-result.json")
+        self.assertEqual(len(calls), 2)
+        self.assertFalse(result["valid"])
+        self.assertIn("quota_diagnostic", result["failure_codes"])
+        self.assert_private_response_removed()
+
+    def test_json_quota_text_is_not_an_error(self):
+        response = self.harness.response("claude-self", checks=[{
+            "path": self.path, "evidence": "Checked MONTHLY_REQUEST_COUNT handling."
+        }])
+        self.run_recording(tag="claude-self", execute=lambda *args: (
+            0, json.dumps(response), "",
+        ))
+        result = self.harness.read("slot/claude-self-result.json")
+        self.assertTrue(result["valid"], result["failure_codes"])
+        self.assert_private_response_removed()
+
+
 if __name__ == "__main__":
     unittest.main()
