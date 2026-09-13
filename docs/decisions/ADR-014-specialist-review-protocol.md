@@ -2,8 +2,23 @@
 
 ## Status
 
-Accepted 2026-09-13. CI activates specialist responsibilities with `ROLE_REVIEW=1`
-and retains the project input, runner, coverage and publication safeguards.
+Accepted
+
+Date: 2026-09-13. CI activates specialist review with `ROLE_REVIEW=1`.
+
+## Context
+
+The legacy matrix repeats four review lenses for three models. Duplicate analysis
+and unconditional chair calls increase latency. Inconsistent documentation also
+causes false positives. The owner requested specialist routing and English-only
+repository documentation, including ADRs, to reduce repeated context tokens.
+
+## Options Considered
+
+- Keep the matrix: retains repeated coverage but also its latency and duplication.
+- Remove panel members: reduces latency but loses independent model families.
+- Keep independent primary roles and route specialists: chosen; preserves the
+  pool while avoiding clearly irrelevant specialist work and empty chair calls.
 
 ## Decision
 
@@ -19,8 +34,28 @@ waive missing or invalid coverage. Preserve existing project input exclusions,
 secret/state custody, context and budgets. No quota or billing limits are raised.
 Review instructions and output are English to avoid duplicate translations.
 
-This supersedes the repeated model-by-lens matrix, permissive dropout floor and
-unconditional chair call. Existing security, source-custody, context, ownership
-and budget decisions remain in force.
+This replaces the repeated matrix and unconditional chair. Existing input,
+security, ownership, publication and budget controls remain in force.
 See [the module contract](../../scripts/pr-review/README.md) for current interfaces
 and offline checks. Model access and production execution require separate evidence.
+
+Sol replaces Terra in the review panel; application inference models are unchanged.
+
+## Consequences
+
+The new protocol keeps immutable scope and blocked execution visible. App Router
+React files are treated conservatively because they may be server components.
+Codex/Claude remain mandatory independent primary roles. The `kiro-fable` tag is
+the historical compatibility name for the Opus slot, not the Claude Fable role.
+
+English-only ADRs supersede the old bilingual template for new/updated records;
+operator Korean and product i18n remain supported. Existing historical records
+need no duplicate rewrite. Review prompts and artifacts now use English. Missing Korean duplicates are not review defects. Deterministic
+summaries reduce chair authority to substantive adjudication; they cannot waive
+missing coverage. Legacy entrypoints remain for regression fixtures; CI selects specialist review.
+
+## References
+
+- [Protocol contract](../../scripts/pr-review/README.md)
+- [Current workflow](../../.github/workflows/pr-review.yml)
+- [Project context](../../CLAUDE.md)
