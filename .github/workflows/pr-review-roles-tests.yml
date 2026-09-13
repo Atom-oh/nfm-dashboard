@@ -25,4 +25,4 @@ jobs:
       - name: Test scope and execution without provider calls
         run: python3 -m unittest discover -s scripts/pr-review -p 'test_*.py' -v
       - name: Check shell syntax
-        run: bash -n scripts/pr-review/run-specialists.sh
+        run: bash -n scripts/pr-review/run-specialists.sh scripts/pr-review/run-panel.sh scripts/pr-review/synthesize.sh scripts/pr-review/role-controls.sh scripts/pr-review/lib.sh

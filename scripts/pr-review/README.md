@@ -21,9 +21,11 @@ IDs do not attest model weights.
 
 - `run-specialists.sh DIFF LENSES WORK` coordinates preparation, required-role
   processes and aggregation. `LENSES` retains the legacy positional interface.
-- `prepare_roles.py` requires the trusted BASE checkout. It uses `gh api` to
-  resolve the merge base and fetches immutable Git objects without checking out
-  or executing PR-head code. Generic preparation reconstructs the diff from Git.
+- `prepare_roles.py` requires the trusted BASE checkout. CI's earlier token-bearing
+  step resolves/fetches immutable Git objects and supplies `MERGE_BASE_SHA`.
+  Preparation validates the SHA and local commits, then reconstructs the diff
+  without network access or a GitHub token. Standalone calls without this trusted
+  handoff retain API/fetch compatibility. PR-head code is never checked out.
 - `run_role.py` invokes one configured provider for each required role. Kiro uses
   private HOME/cwd and a no-tools preflight; Codex uses JSONL events and its final
   reply file. `role-controls.sh` strips control bytes before publication.

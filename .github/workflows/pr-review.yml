@@ -95,7 +95,9 @@ jobs:
           # that commit + head (both shallow, single SHA), then a plain two-dot diff between
           # merge-base and head is exactly equivalent to BASE...HEAD.
           MERGE_BASE_SHA=$(gh api "repos/${{ github.repository }}/compare/${BASE_SHA}...${HEAD_SHA}" --jq '.merge_base_commit.sha')
-          git fetch --depth=1 origin "$MERGE_BASE_SHA" "$HEAD_SHA"
+          [[ "$MERGE_BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Invalid merge base"; exit 1; }
+          git fetch --no-tags --depth=1 origin "$MERGE_BASE_SHA" "$HEAD_SHA"
+          printf 'MERGE_BASE_SHA=%s\n' "$MERGE_BASE_SHA" >> "$GITHUB_ENV"
           git diff --no-color "$MERGE_BASE_SHA" "$HEAD_SHA" -- . > /tmp/pr-diff-raw.txt
           rm -f /tmp/pr-diff-omitted.txt /tmp/pr-diff-omitted-source.txt
           # Authoritative (old-path, new-path) pairs, in the SAME order `git diff` (above) emits
@@ -287,7 +289,6 @@ jobs:
 
       - name: Run specialists and conditionally adjudicate findings
         env:
-          GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           PANEL_TIMEOUT: "300"
@@ -302,7 +303,7 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
-          name: specialist-review-${{ github.event.pull_request.head.sha }}
+          name: specialist-review-${{ github.event.pull_request.head.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             /tmp/pr-review/slot/*-result.json
             /tmp/pr-review/slot/*-request.json
