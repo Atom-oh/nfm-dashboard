@@ -70,3 +70,9 @@ missing coverage. The legacy workflow remains active during this staging phase.
 - [Protocol contract](../../scripts/pr-review/README.md)
 - [Current workflow](../../.github/workflows/pr-review.yml)
 - [Project context](../../CLAUDE.md)
+
+For future edits to README, CHANGELOG, architecture and other current guides,
+update the English text and remove its stale Korean duplicate. Translate Korean-only
+material when revising it. Untouched legacy text and immutable historical evidence
+may retain their original language; new templates and new content are English.
+The runbook template follows this policy. Product UI localization is unchanged.
