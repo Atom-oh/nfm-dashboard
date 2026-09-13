@@ -45,7 +45,8 @@ Sol replaces Terra in the review panel; application inference models are unchang
 
 The new protocol keeps immutable scope and blocked execution visible. App Router
 React files are treated conservatively because they may be server components.
-Codex/Claude remain mandatory independent primary roles. The shared `kiro-fable` tag maps to Opus and replaces the local `kiro-opus` tag;
+Codex/Claude remain mandatory independent primary roles. The shared `kiro-fable`
+tag maps to Opus and replaces the local `kiro-opus` tag;
 `claude-self` identifies Fable.
 
 English-only ADRs supersede the old bilingual template for new/updated records;
@@ -53,12 +54,6 @@ operator Korean and product i18n remain supported. Existing historical records
 need no duplicate rewrite. Review prompts and artifacts now use English. Missing Korean duplicates are not review defects. Deterministic
 summaries reduce chair authority to substantive adjudication; they cannot waive
 missing coverage. Legacy entrypoints remain for regression fixtures; CI selects specialist review.
-
-## References
-
-- [Protocol contract](../../scripts/pr-review/README.md)
-- [Current workflow](../../.github/workflows/pr-review.yml)
-- [Project context](../../CLAUDE.md)
 
 A scope containing only files excluded by the existing, base-approved project
 input policy may complete as NOT_APPLICABLE with a PASS gate result. The trusted
@@ -72,3 +67,9 @@ update the English text and remove its stale Korean duplicate. Translate Korean-
 material when revising it. Untouched legacy text and immutable historical evidence
 may retain their original language; new templates and new content are English.
 The runbook template follows this policy. Product UI localization is unchanged.
+
+## References
+
+- [Protocol contract](../../scripts/pr-review/README.md)
+- [Current workflow](../../.github/workflows/pr-review.yml)
+- [Project context](../../CLAUDE.md)

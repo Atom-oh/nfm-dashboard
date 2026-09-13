@@ -277,6 +277,20 @@ class RoleRecordingTests(unittest.TestCase):
         self.assertIn("quota_diagnostic", result["failure_codes"])
         self.assert_private_response_removed()
 
+    def test_error_prefixed_overage_blocks_retry(self):
+        calls = []
+        def execute(command, *arguments):
+            calls.append(command)
+            if len(calls) == 1:
+                return 1, "Error: You have reached the limit for overages\n", ""
+            return 0, json.dumps(self.harness.response("claude-self")), ""
+        self.run_recording(tag="claude-self", execute=execute)
+        result = self.harness.read("slot/claude-self-result.json")
+        self.assertEqual(len(calls), 1)
+        self.assertFalse(result["valid"])
+        self.assertIn("quota_diagnostic", result["failure_codes"])
+        self.assert_private_response_removed()
+
     def test_kiro_stdout_quota_is_retained(self):
         calls = []
         def execute(command, *arguments):

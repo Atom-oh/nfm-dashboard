@@ -78,7 +78,8 @@ for lens_file in "${LENS_FILES[@]}"; do
 
   # Codex (Bedrock, config.toml). --skip-git-repo-check 필수. global.openai.gpt-6-astra
   # (amazon-bedrock-runtime, config.toml)는 글로벌 모델이라 리전 고정이 더 이상 필요 없다 —
-  # 이전 gpt-5.6-sol/bedrock-mantle(In-Region 전용) 설정과 다름.
+  # Kiro uses its separate gpt-5.6-sol catalog alias; the old Mantle namespace
+  # is not this Codex provider or a Kiro model binding.
   if command -v codex >/dev/null 2>&1; then
     ( try_panel "$SLOT/codex-$lens.md" "$SLOT/codex-$lens.err" \
         timeout "$T" codex exec --model global.openai.gpt-6-astra -s read-only --skip-git-repo-check "$LENS_PROMPT" ) &

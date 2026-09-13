@@ -65,7 +65,7 @@ wall-clock speedup. Per-role timing artifacts support before/after measurement.
 
 ## Maintenance and release
 
-Run `python3 -m unittest discover -s scripts/pr-review -p 'test_*role*.py' -v`
+Run `python3 -m unittest discover -s scripts/pr-review -p 'test_*.py' -v`
 and the repository's existing review tests. Offline fake CLIs validate routing,
 scope, subprocess status and safety boundaries without spending model credits.
 They do not establish successful live model execution.
@@ -90,3 +90,6 @@ not authorize excluding additional source merely to obtain a pass.
 Approved exclusions-only input explicitly supplies `--allow-exclusions-only` and
 a private `--policy` file copied from Git BASE. The engine checks its byte hash
 and retains an anchor through aggregation; arbitrary provenance cannot opt in.
+
+[ADR-014](decisions/ADR-014-specialist-review-protocol.md) records the accepted
+role, coverage and language decisions.

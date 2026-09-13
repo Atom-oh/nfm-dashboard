@@ -1,6 +1,6 @@
 # PR review module
 
-[README.md](README.md) owns the interfaces, limits and staged rollout. This change selects
+[README.md](README.md) owns the active workflow interfaces and limits. This change selects
 `ROLE_REVIEW=1` in CI; legacy entrypoints remain for compatibility and regression
 fixtures. Keep instructions, docs and review output in English. Preserve complete
 required-role coverage, nonce framing and the project review policy.
