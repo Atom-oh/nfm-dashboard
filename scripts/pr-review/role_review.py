@@ -813,6 +813,8 @@ def _assignment_spans(value, key):
                     index += len(quote)
                     quote = None
                     continue
+            elif char == "\\" and index + 1 < len(value) and value[index + 1] not in "\r\n":
+                escaped = True
             elif (index == 0 or value[index - 1] in "\r\n") and fence_end.match(value, index):
                 break
             elif char in "\"'`":
@@ -868,6 +870,8 @@ def _assignment_spans(value, key):
                     index += len(quote)
                     quote = None
                     continue
+            elif char == "\\" and index + 1 < len(value) and value[index + 1] not in "\r\n":
+                escaped = True
             elif prefix in ("\"", "'", "`") and char == prefix and not stack:
                 break
             elif char in "\"'`":
@@ -875,6 +879,17 @@ def _assignment_spans(value, key):
                 quote = char * 3 if char != "`" and value.startswith(char * 3, index) else char
                 index += len(quote)
                 continue
+            elif not stack and value.startswith("/*", index):
+                previous = value[line_start:index].rstrip()
+                if continuation_pending or re.search(r"(?:\|\||\?\?|\bor|\\)$", previous):
+                    closing = value.find("*/", index + 2)
+                    if closing < 0:
+                        index = len(value)
+                        break
+                    index = line_start = next_content(closing + 2)
+                    continuation_pending = True
+                    continue
+                break
             elif (not stack and (index == match.end() or value[index - 1].isspace())
                   and (char == "#" or value.startswith("//", index))):
                 previous = value[line_start:index].rstrip()

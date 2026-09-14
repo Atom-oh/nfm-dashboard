@@ -71,6 +71,8 @@ class RoleReviewTests(unittest.TestCase):
                   for key in ("/prod/db/password", "password[0]", "api key (prod)")
                   for prefix, suffix in (("", ""), ("Evidence: ", "\nPUBLIC_AFTER"))]
         cases.append(f"""curl -d "password='"{canary}"'" https://example.invalid""")
+        cases += [f'password = previous {operator} /* local fallback */ "{canary}"\nPUBLIC_AFTER'
+                  for operator in ("||", "??")]
         for index, evidence in enumerate(cases):
             with self.subTest(case=index):
                 self.work = self.root / f"publication-{index}"
@@ -134,6 +136,8 @@ VERDICT: PASS
             f"curl -d 'password={canary}' https://example.invalid\nPUBLIC_AFTER\nVERDICT: PASS\n",
             f"```dotenv\npassword=prefix[{canary}\n```\n[PUBLIC_AFTER](https://example.invalid)\nVERDICT: PASS\n",
         ]
+        reports.append(f"```bash\npassword={canary}\\'suffix\n```\nPUBLIC_AFTER\nVERDICT: PASS\n")
+        reports.append(f"```bash\npassword={canary}\\(suffix\n```\nPUBLIC_AFTER\nVERDICT: PASS\n")
         for report in reports:
             with self.subTest(report=report):
                 output = self.work / "chair.md"
