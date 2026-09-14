@@ -116,6 +116,7 @@ class RoleReviewTests(unittest.TestCase):
                   f'name=PASSWORD, value=\'password: str = "\'prefix\'{canary}"\' ']
         cases += [f'password: string = `token = Cookie: {canary}`',
                     f"password: str = r'token = Cookie: {canary}'"]
+        cases.append(f'- name: PASSWORD\n  value: token = Cookie: {canary}')
         for index, evidence in enumerate(cases):
             with self.subTest(case=index):
                 self.work = self.root / f"publication-{index}"
@@ -288,6 +289,7 @@ VERDICT: PASS
                     f'name=PASSWORD, value=\'password: str = "\'prefix\'{canary}"\' \nPUBLIC_AFTER\nVERDICT: PASS\n']
         reports += [f'password: string = `token = Cookie: {canary}`\nPUBLIC_AFTER\nVERDICT: PASS\n',
                     f"password: str = r'token = Cookie: {canary}'\nPUBLIC_AFTER\nVERDICT: PASS\n"]
+        reports.append(f'- name: PASSWORD\n  value: token = Cookie: {canary}\nPUBLIC_AFTER\nVERDICT: PASS\n')
         for report in reports:
             with self.subTest(report=report):
                 output = self.work / "chair.md"

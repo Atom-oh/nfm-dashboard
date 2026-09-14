@@ -1340,8 +1340,8 @@ def _assignment_spans(value, key, json_closers=None, *, fragment=False, json_str
         return index
     spans, cursor, string_index = [], 0, 0
     for match in re.finditer(key, value):
-        if match.start() < cursor:
-            continue
+        if match.end() <= cursor:
+            continue  # Only a fully consumed prefix belongs to the previous value.
         if match.end() in closing_fences:
             continue  # Whitespace-only RHS ended at a verified closing fence.
         while single_index < len(single_strings) and single_strings[single_index][1] <= match.start():
