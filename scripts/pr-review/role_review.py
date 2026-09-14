@@ -1523,7 +1523,8 @@ def _opaque_scan_view(value, bodies):
 def _owned_body(value, match, kind, key):
     end = match.end()
     if kind == "header":
-        return match.span()  # The complete header line is already redacted.
+        prefix = re.match(r"[ \t]*[+-]?[ \t]*", match.group())
+        return (match.start() + prefix.end(), end)  # Retain indentation and diff structure.
     if kind == "heredoc":
         newline = value.find("\n", match.end("heredoc"), end)
         if newline < 0:
@@ -1555,8 +1556,9 @@ def _owned_body(value, match, kind, key):
         marker = value[start:marker_end]
         if not (end >= marker_end + len(marker) and value.endswith(marker, start, end)):
             return None  # A fallback token does not prove the quoted value ended.
-        if kind == "named" and "named" in match.re.groupindex and value.startswith(marker, end):
-            return None  # A doubled YAML quote is content, not the value boundary.
+        if kind == "named" and "named" in match.re.groupindex and end < len(value):
+            if not (value[end].isspace() or value[end] in ",;}])>" or value.startswith("/>", end)):
+                return None  # A quoted segment is not complete when the value continues.
         body_end = end - len(marker)
         return (marker_end, body_end) if marker_end < body_end else None
     # An unquoted token is not a complete boundary for a nested assignment.

@@ -99,6 +99,16 @@ class RoleReviewTests(unittest.TestCase):
                   f'- name: PASSWORD\n  value: \'password: str = "prefix\'\'{canary}"\' ']
         cases += [f"- > ```bash\n  > echo '`'\n  > password=`printf '{canary}'`\n  > ```",
                   f"- - ```bash\n    echo '`'\n    password=`printf '{canary}'`\n    ```"]
+        cases += [f'secret: |\n  Cookie: session=public\n  {canary}',
+                  f'secret: |\n  Set-Cookie: session=public\n  {canary}',
+                  f'secret: |\n+  Cookie: session=public\n+  {canary}',
+                  f'secret: |\n+  Set-Cookie: session=public\n+  {canary}',
+                  f'secret: >\n  Cookie: session=public\n  {canary}',
+                  f'secret: >\n  Set-Cookie: session=public\n  {canary}',
+                  f'secret: >\n+  Cookie: session=public\n+  {canary}',
+                  f'secret: >\n+  Set-Cookie: session=public\n+  {canary}']
+        cases += [f'name=PASSWORD value=\'password: str = "\'prefix\'{canary}"\' ',
+                  f'name=PASSWORD, value=\'password: str = "\'prefix\'{canary}"\' ']
         for index, evidence in enumerate(cases):
             with self.subTest(case=index):
                 self.work = self.root / f"publication-{index}"
@@ -129,6 +139,15 @@ class RoleReviewTests(unittest.TestCase):
                         self.assertIn("PUBLIC_AFTER", (self.work / name).read_text())
                 self.assertTrue((self.work / "review.md").read_text().rstrip().endswith("VERDICT: PASS"))
 
+
+    def test_named_value_concatenation_keeps_inner_assignment_visible(self):
+        import role_review
+        from run_role import scrub as scrub_raw
+        canary = "SYNTHETIC_NFM_CONCAT"
+        for text in ['name=PASSWORD value=\'password: str = "\'prefix\'SYNTHETIC_NFM_CONCAT"\' ', 'name=PASSWORD, value=\'password: str = "\'prefix\'SYNTHETIC_NFM_CONCAT"\' ']:
+            with self.subTest(text=text):
+                self.assertNotIn(canary, role_review.scrub(text))
+                self.assertNotIn(canary, role_review.scrub(scrub_raw(text)))
 
     def test_named_value_quote_context_survives_fragment_scrubbing(self):
         import role_review
@@ -250,6 +269,16 @@ VERDICT: PASS
                     f'```bash\nprintf \'%s\' \'myapp password="{canary}"\'\n```\nPUBLIC_AFTER\nVERDICT: PASS\n']
         reports += [f"Cookie: password='{canary}\nPUBLIC_AFTER\nVERDICT: PASS\n",
                     f"Set-Cookie: password='{canary}\nPUBLIC_AFTER\nVERDICT: PASS\n"]
+        reports += [f'secret: |\n  Cookie: session=public\n  {canary}\nPUBLIC_AFTER\nVERDICT: PASS\n',
+                    f'secret: |\n  Set-Cookie: session=public\n  {canary}\nPUBLIC_AFTER\nVERDICT: PASS\n',
+                    f'secret: |\n+  Cookie: session=public\n+  {canary}\nPUBLIC_AFTER\nVERDICT: PASS\n',
+                    f'secret: |\n+  Set-Cookie: session=public\n+  {canary}\nPUBLIC_AFTER\nVERDICT: PASS\n',
+                    f'secret: >\n  Cookie: session=public\n  {canary}\nPUBLIC_AFTER\nVERDICT: PASS\n',
+                    f'secret: >\n  Set-Cookie: session=public\n  {canary}\nPUBLIC_AFTER\nVERDICT: PASS\n',
+                    f'secret: >\n+  Cookie: session=public\n+  {canary}\nPUBLIC_AFTER\nVERDICT: PASS\n',
+                    f'secret: >\n+  Set-Cookie: session=public\n+  {canary}\nPUBLIC_AFTER\nVERDICT: PASS\n']
+        reports += [f'name=PASSWORD value=\'password: str = "\'prefix\'{canary}"\' \nPUBLIC_AFTER\nVERDICT: PASS\n',
+                    f'name=PASSWORD, value=\'password: str = "\'prefix\'{canary}"\' \nPUBLIC_AFTER\nVERDICT: PASS\n']
         for report in reports:
             with self.subTest(report=report):
                 output = self.work / "chair.md"
