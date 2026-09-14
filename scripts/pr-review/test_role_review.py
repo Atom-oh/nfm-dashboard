@@ -246,6 +246,10 @@ VERDICT: PASS
         reports += [f'curl -d "password=x || name=PASSWORD, value="\'{canary}\' https://example.invalid\nPUBLIC_AFTER\nVERDICT: PASS\n',
                     f'curl -d "password=x || name=PASSWORD, value="{canary} https://example.invalid\nPUBLIC_AFTER\nVERDICT: PASS\n',
                     f'- name: PASSWORD\n  value: \'password: str = "prefix\'\'{canary}"\' \nPUBLIC_AFTER\nVERDICT: PASS\n']
+        reports += [f'```bash\nbash -c \'myapp password="{canary}"\'\n```\nPUBLIC_AFTER\nVERDICT: PASS\n',
+                    f'```bash\nprintf \'%s\' \'myapp password="{canary}"\'\n```\nPUBLIC_AFTER\nVERDICT: PASS\n']
+        reports += [f"Cookie: password='{canary}\nPUBLIC_AFTER\nVERDICT: PASS\n",
+                    f"Set-Cookie: password='{canary}\nPUBLIC_AFTER\nVERDICT: PASS\n"]
         for report in reports:
             with self.subTest(report=report):
                 output = self.work / "chair.md"
@@ -310,6 +314,18 @@ VERDICT: PASS
                                 text=True, capture_output=True, cwd=ENGINE.parent, timeout=3)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout), value)
+
+    def test_enclosing_quote_does_not_repair_unfinished_value(self):
+        import role_review
+        canary = "SYNTHETIC_UNFINISHED_SHELL"
+        text = "bash -c 'myapp password=\"" + canary + "'\nVERDICT: PASS\n"
+        clean = role_review.scrub(text)
+        self.assertNotIn(canary, clean)
+        self.assertNotIn("VERDICT: PASS", clean)
+        text = "customer's password=prefix'" + canary + " isn't fine"
+        self.assertNotIn(canary, role_review.scrub(text))
+        text = "bash -c 'myapp password=\"prefix\"'" + canary + "\nVERDICT: PASS\n"
+        self.assertNotIn(canary, role_review.scrub(text))
 
     def test_empty_assignment_does_not_skip_nonclosing_fences(self):
         import role_review
