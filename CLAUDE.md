@@ -4,7 +4,7 @@
 **NFM Dashboard** (v0.11.0, pre-1.0) — Pod-to-Pod network observability dashboard for AWS CloudWatch Network Flow Monitor (NFM), plus a Bedrock AgentCore AI chatbot.
 Live: https://nfm-dashboard.atomai.click (Cognito login). AWS account `<ACCOUNT_ID>`, region `ap-northeast-2`.
 
-> The global `~/.claude/CLAUDE.md` (Korean-first responses) and the spec-driven workflow in `docs/superpowers/` take precedence for language and process. This file only adds project-specific context — keep it complementary and concise.
+> New or updated documentation, ADRs and code comments are English-only. Review output uses English under ADR-014. Korean operator conversation and product ko/en UI translations remain supported. Historical bilingual documents do not require new Korean duplicates. Follow the spec-driven workflow in `docs/superpowers/`.
 
 ## Tech Stack
 - Node.js npm-workspaces monorepo, TypeScript throughout
@@ -20,7 +20,7 @@ Live: https://nfm-dashboard.atomai.click (Cognito login). AWS account `<ACCOUNT_
 app/          - Next.js 16 dashboard (src/app pages incl. /history (+ history-sort.ts col sniffing) & /topology force graph (+ focus-param.ts ?focus= deep-link) & /network (+ ns-param.ts ?ns= deep-link), src/app/api incl. history/ + mcp/ (MCP egress server for external consumers, ADR-012), src/lib incl. athena.ts + mcp-server.ts (MCP egress dispatcher) + use-sortable.ts (sortable tables) + graph-focus.ts/graph-layout.ts (topology ego-network + deterministic layout) + analytics/composite-conditions.ts (G5 multi-signal breaches) + analytics/port-mix.ts (G1 port labels for the network `port` scope), src/components incl. layout/ left Sidebar+Topbar nav, SortableHeader.tsx, PageIntro.tsx (per-page 개요/기능 intro box on all 17 pages), analytics/AnomalyDetailPanel.tsx (row-select slide-over) & topology/NetworkGraph.tsx; insights/tabs/DnsTab.tsx ResolverCompare (G3 CoreDNS vs Route53 Resolver))
 collector/    - NFM data-collector Lambda (5-min cycle → dist/handler.mjs) + archive-transform.ts (DDB Stream → Firehose, → dist/archive-transform.mjs)
 infra/        - CDK stacks: NfmDash-Data (incl. flow-archive pipeline: DDB Stream → Firehose → S3 Parquet → Glue/Athena) / Onboarding / AgentCore / App / Ops / Dns
-scripts/      - build-push.sh (ECR image), smoke.sh (e2e), setup-gateway.sh
+scripts/      - build-push.sh (ECR image), smoke.sh (e2e), setup-gateway.sh, pr-review/ (active specialist review; legacy compatibility entrypoints)
 tools/        - AgentCore MCP tool Lambdas (Python: nfm_mcp, ddb_mcp, network_mcp) + create_gateway.py
 onboarding/   - NFM / CoreDNS onboarding scripts (Python)
 e2e/          - Playwright smoke tests
@@ -48,6 +48,7 @@ bash scripts/build-push.sh <sha>   # build + push container image to ECR
 cd infra && npx cdk deploy <Stack> --require-approval never -c imageTag=<sha>
 #   ALL cdk commands need -c imageTag; non-App stacks may use -c imageTag=unused
 bash scripts/smoke.sh              # e2e smoke test
+python3 -m unittest discover -s scripts/pr-review -p 'test_*.py'  # offline protocol/executor tests
 ```
 
 <!-- AUTO-MANAGED:references -->
@@ -88,3 +89,17 @@ After exiting Plan mode (`/plan`), before starting implementation:
 ### ADR Numbering
 Find the highest number in `docs/decisions/ADR-*.md` and increment by 1.
 Format: `ADR-NNN-concise-title.md`
+
+## Specialist PR review
+
+CI enables `ROLE_REVIEW=1`: one applicable responsibility per model instead of
+repeating every lens. See [the current review contract](docs/pr-review-specialists.md).
+Codex and Claude retain full change-boundary checks from independent model families;
+Kiro covers AWS and operational responsibilities when applicable. Trusted routing
+owns NOT_APPLICABLE. Failed or incomplete required output is never a clean review.
+The chair adjudicates substantive candidates; it cannot waive coverage failures.
+This section supersedes earlier matrix-count and permissive dropout descriptions.
+
+PR review instructions, guides, related ADRs and review output are English-only.
+This scoped policy supersedes older bilingual review-document templates; product
+localization is a separate contract.

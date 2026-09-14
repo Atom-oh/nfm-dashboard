@@ -1,0 +1,31 @@
+name: PR review protocol tests
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/pr-review/**'
+      - '.github/workflows/pr-review*.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/pr-review/**'
+      - '.github/workflows/pr-review*.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  protocol:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Test scope and execution without provider calls
+        run: python3 -m unittest discover -s scripts/pr-review -p 'test_*.py' -v
+      - name: Check shell syntax
+        run: |
+          for script in run-specialists.sh run-panel.sh synthesize.sh role-controls.sh lib.sh; do
+            bash -n "scripts/pr-review/$script" || exit 1
+          done

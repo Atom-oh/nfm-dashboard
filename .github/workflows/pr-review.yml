@@ -1,23 +1,20 @@
 name: AI Code Review
 
-# PR마다 lens×모델 매트릭스 패널(Codex + Kiro x2, L2~L5 각 lens 독립 에이전트)이 리뷰하고
-# Claude Fable 5.1 의장(저하 시 Opus 5 폴백)이 lens별로 종합해 코멘트로 게시(fail-closed
-# VERDICT). awsops 의 lens×model 매트릭스를 이 repo 로 포팅 — 공유 actions-runner-claude
-# 이미지와 claude-runner ServiceAccount(EKS Pod Identity → Bedrock)를 그대로 재사용한다.
-#   - pull_request_target base-SHA 체크아웃(M1): PR head 코드 미실행, diff 는 데이터로만
-#   - 매트릭스 fan-out: scripts/pr-review/run-panel.sh(3모델×4lens=12셀) → synthesize.sh
-#   - 인증: EKS Pod Identity(claude-runner) SigV4 + ai-panel-keys(KIRO)
-#   - 리전: claude-fable-5-1 은 global inference profile 이지만, "global." 은 Bedrock
-#     착지 이후의 라우팅에만 관여하고 SigV4 서명 리전에는 관여하지 않는다 — AWS_REGION 은
-#     ANTHROPIC_BEDROCK_BASE_URL 엔드포인트(ap-northeast-2/Seoul)와 여전히 일치해야 한다
-#     (codex 의 amazon-bedrock-runtime provider 는 이 제약이 없어 다름)
-#   - 러너: nfm-dashboard-claude-arm (ARC scale set, Atom-oh/AWS-Demo-Platform GitOps)
-# lens 정의는 scripts/pr-review/synthesize.sh 의 의장 프롬프트와 lockstep — 한쪽만 바꾸면
-# 패널이 본 lens 와 의장이 종합하는 lens 가 어긋난다.
+# Specialist review runs from the trusted base checkout; PR-head content is data.
+# Legacy entrypoints dispatch to run-specialists.sh and conditional synthesis.
+# Preserve EKS Pod Identity, Kiro keys and the nfm-dashboard-claude-arm runner.
+# The Anthropic endpoint and AWS_REGION must still agree: a global inference
+# profile does not select the SigV4 signing region. Codex keeps its own provider.
 on:
   pull_request_target:
     types: [opened, synchronize]
     branches: [main] # 이 repo의 유일한 PR 타겟
+
+env:
+  ROLE_REVIEW: "1"
+  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+  GH_REPO: ${{ github.repository }}
 
 jobs:
   review:
@@ -61,10 +58,16 @@ jobs:
       # 체크아웃 시점에 자격증명을 아예 남기지 않는 것이 예방 계층.
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.base.sha }}
           # Pin to the immutable base SHA (not base.ref branch tip): deterministic base context, and
           # no window where a moved/unprotected base injects unreviewed code into this trusted job.
-          ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
+
+      - name: Prepare fresh review workspace
+        run: |
+          test ! -L /tmp/pr-review
+          rm -rf -- /tmp/pr-review
+          mkdir -p /tmp/pr-review
 
       - name: Verify CLIs present (runner image)
         run: |
@@ -92,7 +95,9 @@ jobs:
           # that commit + head (both shallow, single SHA), then a plain two-dot diff between
           # merge-base and head is exactly equivalent to BASE...HEAD.
           MERGE_BASE_SHA=$(gh api "repos/${{ github.repository }}/compare/${BASE_SHA}...${HEAD_SHA}" --jq '.merge_base_commit.sha')
-          git fetch --depth=1 origin "$MERGE_BASE_SHA" "$HEAD_SHA"
+          [[ "$MERGE_BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Invalid merge base"; exit 1; }
+          git fetch --no-tags --depth=1 origin "$MERGE_BASE_SHA" "$HEAD_SHA"
+          printf 'MERGE_BASE_SHA=%s\n' "$MERGE_BASE_SHA" >> "$GITHUB_ENV"
           git diff --no-color "$MERGE_BASE_SHA" "$HEAD_SHA" -- . > /tmp/pr-diff-raw.txt
           rm -f /tmp/pr-diff-omitted.txt /tmp/pr-diff-omitted-source.txt
           # Authoritative (old-path, new-path) pairs, in the SAME order `git diff` (above) emits
@@ -231,7 +236,7 @@ jobs:
           Stay inside your assigned lens below — do not comment on other lenses (other agents
           cover those independently). Output concise findings grouped CRITICAL/MAJOR/MINOR. DO NOT
           output a VERDICT line — that is the chair's job.
-          한국어+영문 기술용어 혼용 가능."
+          Use English review prose."
 
           cat <<PROMPT_EOF > /tmp/pr-review/lenses/L2.txt
           $COMMON
@@ -282,7 +287,7 @@ jobs:
             echo "panel_truncated=1" >> "$GITHUB_ENV"
           fi
 
-      - name: Run panel + synthesize (lens×model matrix -> Claude chair)
+      - name: Run specialists and conditionally adjudicate findings
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_TITLE: ${{ github.event.pull_request.title }}
@@ -293,6 +298,21 @@ jobs:
           bash scripts/pr-review/synthesize.sh /tmp/pr-diff-truncated.txt /tmp/pr-review \
             "$PR_NUMBER" "$PR_TITLE" /tmp/review.md
           echo "panel_responded=$(tr '\n' ' ' < /tmp/pr-review/responded.txt 2>/dev/null)" >> "$GITHUB_ENV"
+
+      - name: Preserve specialist scope and execution evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: specialist-review-${{ github.event.pull_request.head.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            /tmp/pr-review/slot/*-result.json
+            /tmp/pr-review/slot/*-request.json
+            /tmp/pr-review/slot/*-timing.json
+            /tmp/pr-review/slot/*.flag
+            /tmp/pr-review/role-plan.json
+            /tmp/pr-review/role-summary.json
+            /tmp/pr-review/role-source.json
+          if-no-files-found: error
 
       - name: Check for blocking issues
         id: gate
@@ -321,8 +341,15 @@ jobs:
           REPO: ${{ github.repository }}
           GATE_RESULT: ${{ steps.gate.outputs.result }}
         run: |
+          CURRENT_HEAD="$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '.head.sha')"
+          if [ "$CURRENT_HEAD" != "$HEAD_SHA" ]; then
+            echo "::error::PR head changed; this review belongs to an older commit"
+            exit 1
+          fi
           MARKER="<!-- multi-ai-pr-review -->"
-          if [ "$GATE_RESULT" = "fail" ]; then
+          if [ "$GATE_RESULT" = "fail" ] && [ "${chair_failed:-0}" = "1" ]; then
+            STATUS_BADGE="**Status: BLOCKED** — required review execution or coverage failed"
+          elif [ "$GATE_RESULT" = "fail" ]; then
             STATUS_BADGE="**Status: BLOCKED** — CRITICAL/MAJOR issues must be resolved before merge"
           else
             STATUS_BADGE="**Status: PASSED** — No blocking issues found"
@@ -330,9 +357,10 @@ jobs:
           sed '$ { /^VERDICT:/d }' /tmp/review.md > /tmp/review-clean.md
           {
             echo "$MARKER"
-            echo "## 🤖 AI Code Review (${chair_used:-Claude Fable 5.1} chair · lens×model matrix)"
+            echo "## AI Code Review — specialists"
+            echo "_Synthesis: ${chair_used:-pending}_"
             echo ""
-            echo "_Cells (model/lens): ${panel_responded:-solo}_"
+            echo "_Specialist coverage: ${panel_responded:-solo}_"
             [ "${panel_truncated:-0}" = "1" ] && echo "_⚠️ diff truncated to first 3000 lines — review is partial._"
             [ -n "${omitted_paths:-}" ] && echo "_⚠️ oversized lines (>50k chars) omitted from the reviewed diff in: ${omitted_paths} — no lens saw those lines; verify them manually._"
             [ -n "${omitted_source_paths:-}" ] && echo "_🛑 omitted lines include reviewable source files (${omitted_source_paths}) — gate forced to BLOCKED (fail-closed); split/reformat those files so the change is reviewable._"

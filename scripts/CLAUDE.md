@@ -15,3 +15,7 @@ Operational shell scripts for building/deploying the app image, running the live
 ## Rules
 - Deploys go in order: `bash scripts/build-push.sh <sha>` then `cd infra && npx cdk deploy <Stack> -c imageTag=<sha>` (all cdk commands need `-c imageTag`; non-App stacks may use `-c imageTag=unused`).
 - Secrets live only in Secrets Manager / process env — never on disk, never in git or CFN templates.
+
+The active [review protocol](pr-review/README.md) uses `ROLE_REVIEW=1` in CI.
+Its module guide owns offline checks and provider/custody rules; legacy entrypoints
+remain for compatibility.
