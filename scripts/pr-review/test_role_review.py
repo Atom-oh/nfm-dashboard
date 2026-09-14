@@ -84,6 +84,8 @@ class RoleReviewTests(unittest.TestCase):
                   for key in ("password[0]", "api key (prod)")]
         cases += [f'config = """password=\'prefix"{canary}\'"""',
                   f'curl -d "password=\'prefix"{canary}"\'" https://example.invalid']
+        cases += [f'name: PASSWORD\nvalue: password: str = "{canary}"',
+                  f'name="PASSWORD", value=password: str = "{canary}"']
         for index, evidence in enumerate(cases):
             with self.subTest(case=index):
                 self.work = self.root / f"publication-{index}"
@@ -190,6 +192,9 @@ VERDICT: PASS
                     for opening in ("[", "{")]
         reports.append('printf \'%s\\n\' \'"password": "' + canary + '"\'\nPUBLIC_AFTER\nVERDICT: PASS\n')
         reports.append(f'curl -d "{{\\"password\\": \\"{canary}\\"}}" https://example.invalid\nPUBLIC_AFTER\nVERDICT: PASS\n')
+        reports += [f'1. Rule\n    Checked `export password="{canary}"` here.\nPUBLIC_AFTER\nVERDICT: PASS\n',
+                    f'Checked `export\npassword="{canary}"` here.\nPUBLIC_AFTER\nVERDICT: PASS\n',
+                    f'1. Rule\n    Checked `export\n    password="{canary}"` here.\nPUBLIC_AFTER\nVERDICT: PASS\n']
         for report in reports:
             with self.subTest(report=report):
                 output = self.work / "chair.md"
@@ -217,6 +222,10 @@ VERDICT: PASS
         clean = role_review.scrub(fenced)
         self.assertNotIn(canary, clean)
         self.assertNotIn("TAIL", clean)
+        self.assertIn("PUBLIC_AFTER", clean)
+        fenced = "```bash\npassword=owner's\n" + canary + "\n'\n```\nPUBLIC_AFTER"
+        clean = role_review.scrub(fenced)
+        self.assertNotIn(canary, clean)
         self.assertIn("PUBLIC_AFTER", clean)
         for value in (f"'{canary}", f"(prefix'{canary}", f"os.getenv('NAME', '{canary}'"):
             clean = role_review.scrub("password=" + value + "\nVERDICT: PASS")
@@ -249,7 +258,10 @@ VERDICT: PASS
 
     def test_commented_bracket_lookahead_has_bounded_runtime(self):
         script = "import json,sys; from role_review import scrub; print(json.dumps(scrub(json.load(sys.stdin))))"
-        for line in ("# password=prefix[\n", "// password=prefix[\n", "/* password=prefix[ */\n"):
+        lines = [prefix + "password=prefix" + "[" * depth + suffix
+                 for prefix, suffix in (("# ", "\n"), ("// ", "\n"), ("/* ", " */\n"))
+                 for depth in (1, 2, 8)]
+        for line in lines:
             with self.subTest(line=line):
                 text = line * 4096
                 result = subprocess.run([sys.executable, "-c", script], input=json.dumps(text),
