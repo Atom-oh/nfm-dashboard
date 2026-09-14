@@ -94,6 +94,11 @@ class RoleReviewTests(unittest.TestCase):
                   for prefix in ("password: ", "secret: ")]
         cases += [f"<script>\n</{tag}>\necho '`'\npassword=`printf '{canary}'`\n</script>"
                   for tag in ("ſcript", "scrİpt", "scrıpt")]
+        cases += [f'curl -d "password=x || name=PASSWORD, value="\'{canary}\' https://example.invalid',
+                  f'curl -d "password=x || name=PASSWORD, value="{canary} https://example.invalid',
+                  f'- name: PASSWORD\n  value: \'password: str = "prefix\'\'{canary}"\' ']
+        cases += [f"- > ```bash\n  > echo '`'\n  > password=`printf '{canary}'`\n  > ```",
+                  f"- - ```bash\n    echo '`'\n    password=`printf '{canary}'`\n    ```"]
         for index, evidence in enumerate(cases):
             with self.subTest(case=index):
                 self.work = self.root / f"publication-{index}"
@@ -124,6 +129,16 @@ class RoleReviewTests(unittest.TestCase):
                         self.assertIn("PUBLIC_AFTER", (self.work / name).read_text())
                 self.assertTrue((self.work / "review.md").read_text().rstrip().endswith("VERDICT: PASS"))
 
+
+    def test_named_value_quote_context_survives_fragment_scrubbing(self):
+        import role_review
+        from run_role import scrub as scrub_raw
+        canary = "SYNTHETIC_NFM_QUOTE_VALUE"
+        samples = ['curl -d "password=x || name=PASSWORD, value="\'SYNTHETIC_NFM_QUOTE_VALUE\' https://example.invalid', 'curl -d "password=x || name=PASSWORD, value="SYNTHETIC_NFM_QUOTE_VALUE https://example.invalid', '- name: PASSWORD\n  value: \'password: str = "prefix\'\'SYNTHETIC_NFM_QUOTE_VALUE"\' ']
+        for text in samples:
+            with self.subTest(text=text):
+                self.assertNotIn(canary, role_review.scrub(text))
+                self.assertNotIn(canary, role_review.scrub(scrub_raw(text)))
 
     def test_repeated_plain_named_values_keep_nested_values_private(self):
         import role_review
@@ -226,6 +241,11 @@ VERDICT: PASS
                     f"<pre>\necho '`'\npassword=`printf '{canary}'`\n</pre>\nPUBLIC_AFTER\nVERDICT: PASS\n"]
         reports += [f"<script>\n</{tag}>\necho '`'\npassword=`printf '{canary}'`\n</script>\nPUBLIC_AFTER\nVERDICT: PASS\n"
                     for tag in ("ſcript", "scrİpt", "scrıpt")]
+        reports += [f"- > ```bash\n  > echo '`'\n  > password=`printf '{canary}'`\n  > ```\nPUBLIC_AFTER\nVERDICT: PASS\n",
+                    f"- - ```bash\n    echo '`'\n    password=`printf '{canary}'`\n    ```\nPUBLIC_AFTER\nVERDICT: PASS\n"]
+        reports += [f'curl -d "password=x || name=PASSWORD, value="\'{canary}\' https://example.invalid\nPUBLIC_AFTER\nVERDICT: PASS\n',
+                    f'curl -d "password=x || name=PASSWORD, value="{canary} https://example.invalid\nPUBLIC_AFTER\nVERDICT: PASS\n',
+                    f'- name: PASSWORD\n  value: \'password: str = "prefix\'\'{canary}"\' \nPUBLIC_AFTER\nVERDICT: PASS\n']
         for report in reports:
             with self.subTest(report=report):
                 output = self.work / "chair.md"
