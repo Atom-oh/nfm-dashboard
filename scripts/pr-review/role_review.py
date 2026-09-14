@@ -1482,6 +1482,7 @@ def _assignment_spans(value, key, json_closers=None, *, fragment=False, json_str
         # A fragment ending immediately after its opening quote has no value;
         # keep its key available to the surrounding shell/quoted-string pass.
         if fragment and quote:
+            cursor = index  # Keep context, but never rescan the traversed suffix.
             continue  # The surrounding text still owns this unfinished value.
         if index == value_start or (quote and index == value_start + len(quote)):
             continue
@@ -1628,7 +1629,8 @@ def scrub(value, preserved=frozenset(), *, _fragment=False):
         (key + r"[|>][-+]?[ \t]*\r?\n(?:[+-]?[ \t]+[^\r\n]*(?:\r?\n|\Z))+", 'block'),
         (named_prefix + rf"(?P<owned_value>(?P<named>{quote}).*?(?P=named)|[^\s,}}\]]+)", 'named'),
         (identifier + r"\s*:\s*[A-Za-z_$][\w.$<>\[\]|, ?]*\s*=\s*"
-        + rf"(?P<owned_value>(?P<typed>{quote}).*?(?P=typed)|[^\s,;}}\]]+)", 'named'),
+        + rf"(?P<owned_value>(?P<typed>{quote}).*?(?P=typed)|[rR](?P<raw>{quote}).*?(?P=raw)"
+        + r"|`(?:\\.|[^`\\])*`|[^\s,;}\]]+)", 'named'),
         _quoted_key_spans,
         (key + rf"(?P<quote>{quote}).*?(?P=quote)", 'scalar'),
         _assignment_spans,

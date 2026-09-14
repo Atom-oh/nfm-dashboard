@@ -30,6 +30,11 @@ def patch(path=FRONTEND, before="old label", after="new label"):
 
 
 class RoleReviewTests(unittest.TestCase):
+    def test_unfinished_fragment_rescanning_is_bounded(self):
+        source = 'import json,role_review; value=json.dumps("secret= or " * 1200 + "\'unfinished"); assert json.loads(role_review.scrub(value)) == "[REDACTED] " * 1200 + "\'unfinished"'
+        subprocess.run([sys.executable, "-c", source], cwd=ENGINE.parent,
+                       check=True, capture_output=True, text=True, timeout=3)
+
     def test_publication_redacts_expression_defaults_and_punctuated_keys(self):
         import run_role
         import synthesize_roles
@@ -109,6 +114,8 @@ class RoleReviewTests(unittest.TestCase):
                   f'secret: >\n+  Set-Cookie: session=public\n+  {canary}']
         cases += [f'name=PASSWORD value=\'password: str = "\'prefix\'{canary}"\' ',
                   f'name=PASSWORD, value=\'password: str = "\'prefix\'{canary}"\' ']
+        cases += [f'password: string = `token = Cookie: {canary}`',
+                    f"password: str = r'token = Cookie: {canary}'"]
         for index, evidence in enumerate(cases):
             with self.subTest(case=index):
                 self.work = self.root / f"publication-{index}"
@@ -279,6 +286,8 @@ VERDICT: PASS
                     f'secret: >\n+  Set-Cookie: session=public\n+  {canary}\nPUBLIC_AFTER\nVERDICT: PASS\n']
         reports += [f'name=PASSWORD value=\'password: str = "\'prefix\'{canary}"\' \nPUBLIC_AFTER\nVERDICT: PASS\n',
                     f'name=PASSWORD, value=\'password: str = "\'prefix\'{canary}"\' \nPUBLIC_AFTER\nVERDICT: PASS\n']
+        reports += [f'password: string = `token = Cookie: {canary}`\nPUBLIC_AFTER\nVERDICT: PASS\n',
+                    f"password: str = r'token = Cookie: {canary}'\nPUBLIC_AFTER\nVERDICT: PASS\n"]
         for report in reports:
             with self.subTest(report=report):
                 output = self.work / "chair.md"
