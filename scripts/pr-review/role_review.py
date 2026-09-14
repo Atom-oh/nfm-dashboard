@@ -956,7 +956,7 @@ def _assignment_spans(value, key, json_closers=None):
     line_break = re.compile(r"\r\n?|\n")
     opening = {"(": ")", "[": "]", "{": "}"}
     bracket_ends = {}
-    fence_end = re.compile(r"[ \t]*(?:`{3,}|~{3,})[ \t]*(?:\r?\n|\Z)")
+    fence_end = re.compile(r"[ \t]*(?:>[ \t]*)*(?:`{3,}|~{3,})[ \t]*(?:\r?\n|\Z)")
 
     def paired_bracket(start, boundary, shell_quote=""):
         # Cache matching pairs from the same forward scan. An unrelated later
@@ -1064,7 +1064,7 @@ def _assignment_spans(value, key, json_closers=None):
         key_name = match.group().rstrip()[:-1].rstrip()
         prefix = value[match.start() - 1] if match.start() else ""
         if key_name.endswith(("\"", "'")):
-            prefix = ""
+            prefix = "'" if value[max(0, match.start() - 2):match.start()] == "'\"" else ""
         # A quoted shell fragment can contain only the assignment prefix.
         if prefix in ("\"", "'") and index < len(value) and value[index] == prefix:
             index += 1

@@ -181,6 +181,9 @@ VERDICT: PASS
                                  {"password": canary, "public": "x"}, [{"password": canary}])]
         reports += [f"curl -d 'password=prefix{opening}{canary}' https://example.invalid\nPUBLIC_AFTER\nVERDICT: PASS\n"
                     for opening in ("[", "{")]
+        reports += [f"> ```dotenv\n> password=prefix{opening}{canary}\n> ```\nPUBLIC_AFTER\nVERDICT: PASS\n"
+                    for opening in ("[", "{")]
+        reports.append('printf \'%s\\n\' \'"password": "' + canary + '"\'\nPUBLIC_AFTER\nVERDICT: PASS\n')
         for report in reports:
             with self.subTest(report=report):
                 output = self.work / "chair.md"
