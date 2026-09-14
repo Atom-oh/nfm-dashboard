@@ -797,10 +797,10 @@ def _json_literal_ranges(value):
                 index += 1
 
 
-def _normalize_container_keys(value):
+def _normalize_container_keys(value, json_closers=None):
     """Expose valid punctuated JSON keys to the existing container safeguards."""
     separator = re.compile(r"\s*:\s*(?=\{|\[)")
-    pieces, cursor = [], 0
+    pieces, cursor, edits = [], 0, []
     for start, end in _json_literal_ranges(value):
         # Do not turn a prefixed/f-string token into a valid plain literal.
         if start and (value[start - 1].isalnum() or value[start - 1] == "_"):
@@ -814,7 +814,17 @@ def _normalize_container_keys(value):
         if not sensitive_key(label) or SENSITIVE_KEY.fullmatch(label):
             continue
         pieces.extend((value[cursor:start], '"password"'))
+        edits.append((end, len('"password"') - (end - start)))
         cursor = end
+    if json_closers is not None:
+        mapped, offset, edit_index = set(), 0, 0
+        for position in sorted(json_closers):
+            while edit_index < len(edits) and edits[edit_index][0] <= position:
+                offset += edits[edit_index][1]
+                edit_index += 1
+            mapped.add(position + offset)
+        json_closers.clear()
+        json_closers.update(mapped)
     pieces.append(value[cursor:])
     return "".join(pieces)
 
@@ -943,7 +953,23 @@ def _json_enclosing_closers(value):
     return closers
 
 
-def _assignment_spans(value, key, json_closers=None):
+def _json_string_spans(value):
+    """Bound encoded JSON only when the complete original string is valid."""
+    spans = []
+    for start, end in _json_literal_ranges(value):
+        if start and (value[start - 1].isalnum() or value[start - 1] == "_"):
+            continue
+        try:
+            decoded = strict_json(value[start:end])
+            if isinstance(decoded, str) and decoded.lstrip().startswith(("{", "[")):
+                if isinstance(strict_json(decoded), (dict, list)):
+                    spans.append((start + 1, end - 1))
+        except Invalid:
+            continue
+    return spans
+
+
+def _assignment_spans(value, key, json_closers=None, *, fragment=False, json_strings=()):
     """Find assignments without changing another detector's input."""
     if json_closers is None:
         json_closers = _json_enclosing_closers(value)
@@ -955,7 +981,7 @@ def _assignment_spans(value, key, json_closers=None):
     bare_word = re.compile(r"[\w.@/-]+")
     line_break = re.compile(r"\r\n?|\n")
     opening = {"(": ")", "[": "]", "{": "}"}
-    bracket_ends = {}
+    bracket_ends, comment_suffixes = {}, {}
     fence_end = re.compile(r"[ \t]*(?:>[ \t]*)*(?:`{3,}|~{3,})[ \t]*(?:\r?\n|\Z)")
 
     def paired_bracket(start, boundary, shell_quote=""):
@@ -964,11 +990,28 @@ def _assignment_spans(value, key, json_closers=None):
         cache_key = (start, boundary, shell_quote)
         if cache_key in bracket_ends:
             return bracket_ends[cache_key] is not None
+        checkpoints = []
+
+        def finish(result):
+            bracket_ends[cache_key] = 0 if result else None
+            for checkpoint in checkpoints:
+                comment_suffixes[checkpoint] = result
+            return result
+
         pending = [(opening[value[start]], start)]
         index, quote, escaped = start + 1, None, False
         call_syntax = False
         while index < (len(value) if boundary is None else boundary):
             char = value[index]
+            if (not quote and not escaped and len(pending) == 1
+                    and (value.startswith("/*", index) or (value[index - 1].isspace()
+                         and (char == "#" or value.startswith("//", index))))):
+                # Identical suffix states recur for assignments inside comments.
+                # Reuse their outcome without treating comment contents as code.
+                checkpoint = (index, boundary, shell_quote, pending[0][0], call_syntax)
+                if checkpoint in comment_suffixes:
+                    return finish(comment_suffixes[checkpoint])
+                checkpoints.append(checkpoint)
             if escaped:
                 escaped = False
             elif quote:
@@ -983,7 +1026,7 @@ def _assignment_spans(value, key, json_closers=None):
             elif value.startswith("/*", index):
                 closing = value.find("*/", index + 2)
                 if closing < 0:
-                    return True
+                    return finish(True)
                 index = closing + 2
                 continue
             elif (value[index - 1].isspace()
@@ -1007,16 +1050,16 @@ def _assignment_spans(value, key, json_closers=None):
             elif char in ")]}":
                 closing, position = pending.pop()
                 if char != closing:
-                    return True  # Keep the main scanner's fail-closed behavior.
+                    return finish(True)  # Keep the main scanner's fail-closed behavior.
                 bracket_ends[(position, boundary, shell_quote)] = index
                 if not pending:
-                    return True
+                    return finish(True)
             index += 1
         if quote or escaped or (value[start] == "(" and call_syntax):
-            return True  # An unfinished string is not a bare literal boundary.
+            return finish(True)  # An unfinished string is not a bare literal boundary.
         for _, position in pending:
             bracket_ends[(position, boundary, shell_quote)] = None
-        return False
+        return finish(False)
     last_apostrophe, last_double, quote_escape = -1, -1, False
     code_apostrophes, code_doubles, quote_span_index = {}, {}, 0
     same_line_quote = set()
@@ -1045,10 +1088,15 @@ def _assignment_spans(value, key, json_closers=None):
         while index < len(value) and value[index].isspace():
             index += 1
         return index
-    spans, cursor = [], 0
+    spans, cursor, string_index = [], 0, 0
     for match in re.finditer(key, value):
         if match.start() < cursor:
             continue
+        while string_index < len(json_strings) and json_strings[string_index][1] <= match.start():
+            string_index += 1
+        string_end = (json_strings[string_index][1]
+                      if string_index < len(json_strings) and json_strings[string_index][0] <= match.start()
+                      else None)
         while code_index < len(code_spans) and code_spans[code_index][1] < match.start():
             code_index += 1
         code_end = (code_spans[code_index][1]
@@ -1080,6 +1128,8 @@ def _assignment_spans(value, key, json_closers=None):
         continuation_pending = False
         while index < len(value):
             char = value[index]
+            if index == string_end and not quote and not stack:
+                break
             if (index == code_end and index > value_start and not quote and not stack
                     and not tail_operator.search(value[line_start:index].rstrip())):
                 break
@@ -1170,6 +1220,8 @@ def _assignment_spans(value, key, json_closers=None):
             index += 1
         # A fragment ending immediately after its opening quote has no value;
         # keep its key available to the surrounding shell/quoted-string pass.
+        if fragment and quote:
+            continue  # The surrounding text still owns this unfinished value.
         if index == value_start or (quote and index == value_start + len(quote)):
             continue
         spans.append((match.start(), index))
@@ -1243,7 +1295,7 @@ def _owned_body(value, match, kind, key):
     return (start, end)
 
 
-def scrub(value, preserved=frozenset()):
+def scrub(value, preserved=frozenset(), *, _fragment=False):
     """Scrub decoded strings too: raw-JSON sanitizers miss escaped credentials."""
     if isinstance(value, list):
         return [scrub(x, preserved) for x in value]
@@ -1276,12 +1328,13 @@ def scrub(value, preserved=frozenset()):
         pass
     def quoted(match):
         try:
-            return canonical(scrub(strict_json(match.group()), preserved))
+            return canonical(scrub(strict_json(match.group()), preserved, _fragment=True))
         except Invalid:
             return match.group()
     # Decode nested JSON strings/escaped keys before applying key/value patterns.
     value = re.sub(r'"(?:\\.|[^"\\])*"', quoted, value)
-    value = _normalize_container_keys(value)
+    json_closers = _json_enclosing_closers(value)
+    value = _normalize_container_keys(value, json_closers)
     identifier = SENSITIVE_KEY.pattern
     quote = r"""\\*["']"""
     key = identifier + rf"(?:{quote})?\s*[:=]\s*"
@@ -1320,7 +1373,8 @@ def scrub(value, preserved=frozenset()):
             scan_value = _opaque_scan_view(value, bodies)
             continue
         if entry is _assignment_spans:
-            spans.extend(_assignment_spans(scan_value, key, _json_enclosing_closers(value)))
+            spans.extend(_assignment_spans(scan_value, key, json_closers,
+                                           fragment=_fragment, json_strings=_json_string_spans(value)))
             continue
         pattern, kind = entry if isinstance(entry, tuple) else (entry, None)
         for match in re.finditer(pattern, scan_value, flags=re.S):

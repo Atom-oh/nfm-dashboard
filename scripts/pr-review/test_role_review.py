@@ -82,6 +82,8 @@ class RoleReviewTests(unittest.TestCase):
                   for operator in ("||", "??")]
         cases += ['Evidence: {"' + key + '": "\\q password=\'prefix", ' + canary + "'}"
                   for key in ("password[0]", "api key (prod)")]
+        cases += [f'config = """password=\'prefix"{canary}\'"""',
+                  f'curl -d "password=\'prefix"{canary}"\'" https://example.invalid']
         for index, evidence in enumerate(cases):
             with self.subTest(case=index):
                 self.work = self.root / f"publication-{index}"
@@ -178,12 +180,16 @@ VERDICT: PASS
         ]
         reports += ["printf '%s\\n' '" + json.dumps(item) + "'\nPUBLIC_AFTER\nVERDICT: PASS\n"
                     for item in ({"password": canary}, {"public": "x", "password": canary},
-                                 {"password": canary, "public": "x"}, [{"password": canary}])]
+                                 {"password": canary, "public": "x"}, [{"password": canary}],
+                                 {"name": "TOKEN", "value": None, "password": canary},
+                                 {"name": "TOKEN", "value": 123, "password": canary},
+                                 {"api key (one)": {"note": canary}, "api key (two)": {"note": canary}})]
         reports += [f"curl -d 'password=prefix{opening}{canary}' https://example.invalid\nPUBLIC_AFTER\nVERDICT: PASS\n"
                     for opening in ("[", "{")]
         reports += [f"> ```dotenv\n> password=prefix{opening}{canary}\n> ```\nPUBLIC_AFTER\nVERDICT: PASS\n"
                     for opening in ("[", "{")]
         reports.append('printf \'%s\\n\' \'"password": "' + canary + '"\'\nPUBLIC_AFTER\nVERDICT: PASS\n')
+        reports.append(f'curl -d "{{\\"password\\": \\"{canary}\\"}}" https://example.invalid\nPUBLIC_AFTER\nVERDICT: PASS\n')
         for report in reports:
             with self.subTest(report=report):
                 output = self.work / "chair.md"
@@ -222,6 +228,8 @@ VERDICT: PASS
         text = 'echo \'{"items":[{"password":"x"}]}\''
         expected = {index for index, char in enumerate(text) if char in "}]"}
         self.assertEqual(role_review._json_enclosing_closers(text), expected)
+        for malformed in ('{"password":"a", "password":"b"}', '{"password":"\\q"}', '{"password":'):
+            self.assertEqual(role_review._json_string_spans(json.dumps(malformed)), [])
         for text in ('{"password":"x", "password":"y"}',
                      '{"password":"\\q", "nested":{"public":"x"}}',
                      '{"password":"x", "nested":{"public":"x"},}',
@@ -238,6 +246,16 @@ VERDICT: PASS
                                 text=True, capture_output=True, cwd=ENGINE.parent, timeout=3)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout), value)
+
+    def test_commented_bracket_lookahead_has_bounded_runtime(self):
+        script = "import json,sys; from role_review import scrub; print(json.dumps(scrub(json.load(sys.stdin))))"
+        for line in ("# password=prefix[\n", "// password=prefix[\n", "/* password=prefix[ */\n"):
+            with self.subTest(line=line):
+                text = line * 4096
+                result = subprocess.run([sys.executable, "-c", script], input=json.dumps(text),
+                                        text=True, capture_output=True, cwd=ENGINE.parent, timeout=3)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn("prefix", json.loads(result.stdout))
 
     def test_ordinary_prose_scrub_has_bounded_runtime(self):
         prose = "The password is required and the token is optional. " * 80
