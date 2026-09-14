@@ -861,7 +861,7 @@ def _quoted_key_spans(value):
     return spans
 
 
-def _inline_code_spans(value, block_spans=None):
+def _inline_code_spans(value, block_spans=None, closing_fences=None):
     """Find code delimiters within prose paragraphs and list continuations."""
     spans, pending, list_indents = [], [], []
     offset, fence, paragraph, quote_depth = 0, None, False, 0
@@ -902,6 +902,8 @@ def _inline_code_spans(value, block_spans=None):
                     and len(marker[1]) >= fence[1] and not marker[2].strip()):
                 if block_spans is not None:
                     block_spans.append((fence_start, offset + len(line)))
+                if closing_fences is not None:
+                    closing_fences.add(offset + (quote.end() if quote else 0) + marker.start(1))
                 fence = None
             offset += len(line)
             continue
@@ -1012,23 +1014,54 @@ def _assignment_spans(value, key, json_closers=None, *, fragment=False, json_str
     operator = re.compile(r"\|\||\?\?|\bor\b")
     tail_operator = re.compile(r"(?:\|\||\?\?|\bor|\\|(?:^|\s)[+*/%&|^?:<>=!-])$")
     block_spans, block_index = [], 0
-    code_spans, code_index = _inline_code_spans(value, block_spans), 0
+    closing_fences = set()
+    code_spans, code_index = _inline_code_spans(value, block_spans, closing_fences), 0
     prose_suffix = re.compile(r"'(?:s|t|re|ve|ll|d|m)\b", re.I)
     bare_word = re.compile(r"[\w.@/-]+")
     line_break = re.compile(r"\r\n?|\n")
     opening = {"(": ")", "[": "]", "{": "}"}
-    bracket_ends, comment_suffixes = {}, {}
-    stack_states, stack_parents = {}, [0]
-
-    def pushed(state, closer):
-        # Intern the complete closer stack; comment keys stay constant-size.
-        pair = (state, closer)
-        if pair not in stack_states:
-            stack_states[pair] = len(stack_parents)
-            stack_parents.append(state)
-        return stack_states[pair]
-
+    bracket_ends, comment_jumps = {}, {}
     fence_end = re.compile(r"[ \t]*(?:>[ \t]*)*(?:`{3,}|~{3,})[ \t]*(?:\r?\n|\Z)")
+
+    def skipped_comments(start, boundary):
+        # Comment traversal is independent of the caller's bracket stack.
+        visited, index = [], start
+        limit = len(value) if boundary is None else boundary
+        while True:
+            entry = (index, boundary)
+            if entry in comment_jumps:
+                target = comment_jumps[entry]
+                break
+            visited.append(entry)
+            if value.startswith("/*", index):
+                closing = value.find("*/", index + 2)
+                if closing < 0:
+                    target = None
+                    break
+                end = closing + 2
+            else:
+                newline = line_break.search(value, index)
+                end = len(value) if newline is None else newline.end()
+            if end >= limit:
+                target = end
+                break
+            following = end
+            while following < limit and value[following].isspace():
+                if (following == 0 or value[following - 1] in "\r\n") and fence_end.match(value, following):
+                    break
+                following += 1
+            if following >= limit:
+                target = following
+                break
+            if (value.startswith("/*", following) or (value[following - 1].isspace()
+                    and (value[following] == "#" or value.startswith("//", following)))):
+                index = following
+            else:
+                target = following
+                break
+        for entry in visited:
+            comment_jumps[entry] = target
+        return target
 
     def paired_bracket(start, boundary, shell_quote=""):
         # Cache matching pairs from the same forward scan. An unrelated later
@@ -1036,32 +1069,18 @@ def _assignment_spans(value, key, json_closers=None, *, fragment=False, json_str
         cache_key = (start, boundary, shell_quote)
         if cache_key in bracket_ends:
             return bracket_ends[cache_key] is not None
-        checkpoints = []
-
         def finish(result):
             bracket_ends[cache_key] = 0 if result else None
             if not result:
                 for _, position in pending:
                     bracket_ends[(position, boundary, shell_quote)] = None
-            for checkpoint in checkpoints:
-                comment_suffixes[checkpoint] = result
             return result
 
         pending = [(opening[value[start]], start)]
-        stack_state = pushed(0, opening[value[start]])
         index, quote, escaped = start + 1, None, False
         call_syntax = False
         while index < (len(value) if boundary is None else boundary):
             char = value[index]
-            if (not quote and not escaped and pending
-                    and (value.startswith("/*", index) or (value[index - 1].isspace()
-                         and (char == "#" or value.startswith("//", index))))):
-                # Identical suffix states recur for assignments inside comments.
-                # Reuse their outcome without treating comment contents as code.
-                checkpoint = (index, boundary, shell_quote, stack_state, call_syntax)
-                if checkpoint in comment_suffixes:
-                    return finish(comment_suffixes[checkpoint])
-                checkpoints.append(checkpoint)
             if escaped:
                 escaped = False
             elif quote:
@@ -1074,15 +1093,17 @@ def _assignment_spans(value, key, json_closers=None, *, fragment=False, json_str
             elif char == "\\" and index + 1 < len(value) and value[index + 1] not in "\r\n":
                 escaped = True
             elif value.startswith("/*", index):
-                closing = value.find("*/", index + 2)
-                if closing < 0:
+                following = skipped_comments(index, boundary)
+                if following is None:
                     return finish(True)
-                index = closing + 2
+                index = following
                 continue
             elif (value[index - 1].isspace()
                   and (char == "#" or value.startswith("//", index))):
-                newline = line_break.search(value, index)
-                index = len(value) if newline is None else newline.end()
+                following = skipped_comments(index, boundary)
+                if following is None:
+                    return finish(True)
+                index = following
                 continue
             elif (index == 0 or value[index - 1] in "\r\n") and fence_end.match(value, index):
                 break
@@ -1097,10 +1118,8 @@ def _assignment_spans(value, key, json_closers=None, *, fragment=False, json_str
                 call_syntax = True
             elif char in opening:
                 pending.append((opening[char], index))
-                stack_state = pushed(stack_state, opening[char])
             elif char in ")]}":
                 closing, position = pending.pop()
-                stack_state = stack_parents[stack_state]
                 if char != closing:
                     return finish(True)  # Keep the main scanner's fail-closed behavior.
                 bracket_ends[(position, boundary, shell_quote)] = index
@@ -1142,6 +1161,8 @@ def _assignment_spans(value, key, json_closers=None, *, fragment=False, json_str
     for match in re.finditer(key, value):
         if match.start() < cursor:
             continue
+        if match.end() in closing_fences:
+            continue  # Whitespace-only RHS ended at a verified closing fence.
         while string_index < len(json_strings) and json_strings[string_index][1] <= match.start():
             string_index += 1
         string_end = (json_strings[string_index][1]
@@ -1180,7 +1201,7 @@ def _assignment_spans(value, key, json_closers=None, *, fragment=False, json_str
             char = value[index]
             if index == string_end and not quote and not stack:
                 break
-            if (index == code_end and index > value_start and not quote and not stack
+            if (index == code_end and not quote and not stack
                     and not tail_operator.search(value[line_start:index].rstrip())):
                 break
             if plain_scalar:
@@ -1340,7 +1361,9 @@ def _owned_body(value, match, kind, key):
         width = 3 if marker_end + 3 <= end and value.startswith(quote * 3, marker_end) else 1
         marker_end += width
         marker = value[start:marker_end]
-        body_end = end - len(marker) if end >= marker_end + len(marker) and value.endswith(marker, start, end) else end
+        if not (end >= marker_end + len(marker) and value.endswith(marker, start, end)):
+            return None  # A fallback token does not prove the quoted value ended.
+        body_end = end - len(marker)
         return (marker_end, body_end) if marker_end < body_end else None
     # An unquoted token is not a complete boundary for a nested assignment.
     return None if kind == "named" else (start, end)
