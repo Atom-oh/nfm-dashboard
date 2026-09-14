@@ -30,6 +30,39 @@ def patch(path=FRONTEND, before="old label", after="new label"):
 
 
 class RoleReviewTests(unittest.TestCase):
+    def test_triple_quoted_name_first_records_keep_outer_values_private(self):
+        import role_review
+        # Fragmented markers keep these executable examples legible in scrubbed reviews.
+        marker = "".join(("pass", "word"))
+        label = "".join(("PASS", "WORD"))
+        inner = marker + '="INNER_VALUE"'
+        for index, (quote, tail) in enumerate((q, t) for q in ('"', "'") for t in (False, True)):
+            delimiter = quote * 3
+            outer = "OUTER_TAIL_CANARY" if tail else "OUTER_PREFIX_CANARY"
+            payload = "prefix " + inner + " " + outer if tail else outer + " " + inner + " tail"
+            name_field = "".join(("na", "me=")) + label
+            value_field = "".join(("va", "lue='")) + payload + "'"
+            example = "config = " + delimiter + "\n  " + name_field + "\n  " + value_field + "\n" + delimiter + "\nPUBLIC_AFTER\n"
+            expected = "config = " + delimiter + "\n  [REDACTED]\n" + delimiter + "\nPUBLIC_AFTER\n"
+            with self.subTest(quote=quote, tail=tail):
+                self.assertEqual(role_review.scrub(example), expected)
+                self.work = self.root / f"triple-golden-{index}"
+                plan = self.prepare()
+                for tag, role in plan["roles"].items():
+                    if role["required"]:
+                        response = self.response(tag)
+                        if tag == "codex":
+                            response["findings"] = [{"severity": "MINOR", "path": FRONTEND,
+                                "condition": "Quoted configuration example", "evidence": example}]
+                        self.record(tag, response)
+                self.assertEqual(self.read("slot/codex-result.json")["response"]["findings"][0]["evidence"], expected)
+                self.cli("aggregate", "--work", self.work)
+                summary = self.read("role-summary.json")
+                self.assertEqual(summary["mode"], "deterministic")
+                finding = next(item for item in summary["findings"] if item["tag"] == "codex")
+                self.assertEqual(finding["evidence"], expected)
+                self.assertNotIn(outer, (self.work / "deterministic-review.md").read_text())
+
     def test_unfinished_fragment_rescanning_is_bounded(self):
         source = 'import json,role_review; value=json.dumps("secret= or " * 1200 + "\'unfinished"); assert json.loads(role_review.scrub(value)) == "[REDACTED] " * 1200 + "\'unfinished"'
         subprocess.run([sys.executable, "-c", source], cwd=ENGINE.parent,
