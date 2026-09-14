@@ -764,6 +764,29 @@ def strip_controls(value, protect_api_boundary=False):
     return "".join(result)
 
 
+def _normalize_container_keys(value):
+    """Expose valid punctuated JSON keys to the existing container safeguards."""
+    literal = re.compile(r'"(?:\\.|[^"\\])*"')
+    separator = re.compile(r"\s*:\s*(?=\{|\[)")
+    pieces, cursor = [], 0
+    for match in literal.finditer(value):
+        # Do not turn a prefixed/f-string token into a valid plain literal.
+        if match.start() and (value[match.start() - 1].isalnum() or value[match.start() - 1] == "_"):
+            continue
+        if not separator.match(value, match.end()):
+            continue
+        try:
+            label = strict_json(match.group())
+        except Invalid:
+            continue
+        if not sensitive_key(label) or SENSITIVE_KEY.fullmatch(label):
+            continue
+        pieces.extend((value[cursor:match.start()], '"password"'))
+        cursor = match.end()
+    pieces.append(value[cursor:])
+    return "".join(pieces)
+
+
 def _quoted_key_spans(value):
     """Scan bounded JSON literals without broadening the prose identifier."""
     literal = re.compile(r'"(?:\\.|[^"\\])*(?:"|\\?\Z)')
@@ -815,6 +838,17 @@ def _assignment_spans(value, key):
                     continue
             elif char == "\\" and index + 1 < len(value) and value[index + 1] not in "\r\n":
                 escaped = True
+            elif value.startswith("/*", index):
+                closing = value.find("*/", index + 2)
+                if closing < 0:
+                    return True
+                index = closing + 2
+                continue
+            elif (value[index - 1].isspace()
+                  and (char == "#" or value.startswith("//", index))):
+                newline = line_break.search(value, index)
+                index = len(value) if newline is None else newline.end()
+                continue
             elif (index == 0 or value[index - 1] in "\r\n") and fence_end.match(value, index):
                 break
             elif char in "\"'`":
@@ -836,7 +870,14 @@ def _assignment_spans(value, key):
         for _, position in pending:
             bracket_ends[position] = None
         return False
-    contraction = re.compile(r"(?i:(?:[a-z]+n't|it'[sd]))(?=\s|\Z)")
+    last_apostrophe, quote_escape = -1, False
+    for position, char in enumerate(value):
+        if quote_escape:
+            quote_escape = False
+        elif char == "\\":
+            quote_escape = True
+        elif char == "'":
+            last_apostrophe = position
     def next_content(index):
         while index < len(value) and value[index].isspace():
             index += 1
@@ -854,9 +895,6 @@ def _assignment_spans(value, key):
         if prefix in ("\"", "'") and index < len(value) and value[index] == prefix:
             index += 1
         value_start = index
-        # A leading prose contraction is a bare word, not an opening quote.
-        if word := contraction.match(value, index):
-            index = word.end()
         line_start = value_start
         continuation_pending = False
         while index < len(value):
@@ -874,14 +912,17 @@ def _assignment_spans(value, key):
                 escaped = True
             elif prefix in ("\"", "'", "`") and char == prefix and not stack:
                 break
+            elif (char == "'" and index == last_apostrophe and index > value_start
+                  and not stack and (value[index - 1].isalnum() or value[index - 1] in "_])")):
+                pass  # An unpaired embedded apostrophe is prose, not a new string.
             elif char in "\"'`":
                 continuation_pending = False
                 quote = char * 3 if char != "`" and value.startswith(char * 3, index) else char
                 index += len(quote)
                 continue
-            elif not stack and value.startswith("/*", index):
+            elif value.startswith("/*", index):
                 previous = value[line_start:index].rstrip()
-                if continuation_pending or re.search(r"(?:\|\||\?\?|\bor|\\)$", previous):
+                if stack or continuation_pending or re.search(r"(?:\|\||\?\?|\bor|\\)$", previous):
                     closing = value.find("*/", index + 2)
                     if closing < 0:
                         index = len(value)
@@ -890,10 +931,10 @@ def _assignment_spans(value, key):
                     continuation_pending = True
                     continue
                 break
-            elif (not stack and (index == match.end() or value[index - 1].isspace())
+            elif ((index == match.end() or value[index - 1].isspace())
                   and (char == "#" or value.startswith("//", index))):
                 previous = value[line_start:index].rstrip()
-                if continuation_pending or re.search(r"(?:\|\||\?\?|\bor|\\)$", previous):
+                if stack or continuation_pending or re.search(r"(?:\|\||\?\?|\bor|\\)$", previous):
                     newline = line_break.search(value, index)
                     index = len(value) if newline is None else next_content(newline.end())
                     line_start = index
@@ -989,6 +1030,7 @@ def scrub(value, preserved=frozenset()):
             return match.group()
     # Decode nested JSON strings/escaped keys before applying key/value patterns.
     value = re.sub(r'"(?:\\.|[^"\\])*"', quoted, value)
+    value = _normalize_container_keys(value)
     identifier = SENSITIVE_KEY.pattern
     quote = r"""\\*["']"""
     key = identifier + rf"(?:{quote})?\s*[:=]\s*"
