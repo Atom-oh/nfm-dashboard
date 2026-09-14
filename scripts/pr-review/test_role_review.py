@@ -88,6 +88,12 @@ class RoleReviewTests(unittest.TestCase):
                   f'name="PASSWORD", value=password: str = "{canary}"']
         cases += [f'name: PASSWORD\nvalue: \'password: str = "{canary}"',
                   f'name: PASSWORD\nvalue: "password: str = \'{canary}\'']
+        cases += [f"```bash\ncat <<'EOF'\n> ```\nEOF\necho '`'\npassword=`printf '{canary}'`\n```",
+                  f"<pre>\necho '`'\npassword=`printf '{canary}'`\n</pre>"]
+        cases += [f"{prefix}name=PASSWORD, value=name=PASSWORD, value={canary}"
+                  for prefix in ("password: ", "secret: ")]
+        cases += [f"<script>\n</{tag}>\necho '`'\npassword=`printf '{canary}'`\n</script>"
+                  for tag in ("ſcript", "scrİpt", "scrıpt")]
         for index, evidence in enumerate(cases):
             with self.subTest(case=index):
                 self.work = self.root / f"publication-{index}"
@@ -118,6 +124,22 @@ class RoleReviewTests(unittest.TestCase):
                         self.assertIn("PUBLIC_AFTER", (self.work / name).read_text())
                 self.assertTrue((self.work / "review.md").read_text().rstrip().endswith("VERDICT: PASS"))
 
+
+    def test_repeated_plain_named_values_keep_nested_values_private(self):
+        import role_review
+        from run_role import scrub as scrub_raw
+        canary = "SYNTHETIC_REPEAT_VALUE"
+        for prefix in ("password: ", "secret: "):
+            text = prefix + "name=PASSWORD, value=name=PASSWORD, value=" + canary
+            self.assertNotIn(canary, role_review.scrub(text))
+            self.assertNotIn(canary, role_review.scrub(scrub_raw(text)))
+
+        chain = "password: " + "name=PASSWORD, value=" * 2048 + canary
+        script = "import json,sys; from role_review import scrub; print(json.dumps(scrub(json.load(sys.stdin))))"
+        result = subprocess.run([sys.executable, "-c", script], input=json.dumps(chain),
+                                text=True, capture_output=True, cwd=ENGINE.parent, timeout=3)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn(canary, json.loads(result.stdout))
 
     def test_chair_preserves_verdict_after_grouped_sensitive_examples(self):
         import synthesize_roles
@@ -200,6 +222,10 @@ VERDICT: PASS
         reports += ['Checked `password=`; empty values are rejected.\nPUBLIC_AFTER\nVERDICT: PASS\n',
                     '```dotenv\npassword=\n```\nPUBLIC_AFTER\nVERDICT: PASS\n']
         reports.append(f"password=\n```text\n{canary}\n```\nPUBLIC_AFTER\nVERDICT: PASS\n")
+        reports += [f"```bash\ncat <<'EOF'\n> ```\nEOF\necho '`'\npassword=`printf '{canary}'`\n```\nPUBLIC_AFTER\nVERDICT: PASS\n",
+                    f"<pre>\necho '`'\npassword=`printf '{canary}'`\n</pre>\nPUBLIC_AFTER\nVERDICT: PASS\n"]
+        reports += [f"<script>\n</{tag}>\necho '`'\npassword=`printf '{canary}'`\n</script>\nPUBLIC_AFTER\nVERDICT: PASS\n"
+                    for tag in ("ſcript", "scrİpt", "scrıpt")]
         for report in reports:
             with self.subTest(report=report):
                 output = self.work / "chair.md"
@@ -230,6 +256,10 @@ VERDICT: PASS
         self.assertIn("PUBLIC_AFTER", clean)
         fenced = "```bash\npassword=owner's\n" + canary + "\n'\n```\nPUBLIC_AFTER"
         clean = role_review.scrub(fenced)
+        self.assertNotIn(canary, clean)
+        self.assertIn("PUBLIC_AFTER", clean)
+        indented = "    password=owner's\n    " + canary + "\n    '\nPUBLIC_AFTER"
+        clean = role_review.scrub(indented)
         self.assertNotIn(canary, clean)
         self.assertIn("PUBLIC_AFTER", clean)
         for value in (f"'{canary}", f"(prefix'{canary}", f"os.getenv('NAME', '{canary}'"):
@@ -292,6 +322,16 @@ VERDICT: PASS
                                 text=True, capture_output=True, cwd=ENGINE.parent, timeout=3)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("prefix", json.loads(result.stdout))
+
+    def test_thematic_break_near_match_has_bounded_runtime(self):
+        script = "import json,sys; from role_review import scrub; print(json.dumps(scrub(json.load(sys.stdin))))"
+        for marker in ("*", "_"):
+            with self.subTest(marker=marker):
+                text = marker * 3 + " " * 50000 + "X"
+                result = subprocess.run([sys.executable, "-c", script], input=json.dumps(text),
+                                        text=True, capture_output=True, cwd=ENGINE.parent, timeout=3)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout), text)
 
     def test_ordinary_prose_scrub_has_bounded_runtime(self):
         prose = "The password is required and the token is optional. " * 80
