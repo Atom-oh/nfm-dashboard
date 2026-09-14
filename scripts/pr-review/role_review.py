@@ -792,7 +792,48 @@ def _assignment_spans(value, key):
     operator = re.compile(r"\|\||\?\?|\bor\b")
     line_break = re.compile(r"\r\n?|\n")
     opening = {"(": ")", "[": "]", "{": "}"}
-    last_closing = {char: value.rfind(char) for char in opening.values()}
+    bracket_ends = {}
+    fence_end = re.compile(r"[ \t]*(?:`{3,}|~{3,})[ \t]*(?:\r?\n|\Z)")
+
+    def paired_bracket(start):
+        # Cache matching pairs from the same forward scan. An unrelated later
+        # Markdown link cannot close a bracket inside this bare token.
+        if start in bracket_ends:
+            return bracket_ends[start] is not None
+        pending = [(opening[value[start]], start)]
+        index, quote, escaped = start + 1, None, False
+        while index < len(value):
+            char = value[index]
+            if escaped:
+                escaped = False
+            elif quote:
+                if char == "\\":
+                    escaped = True
+                elif value.startswith(quote, index):
+                    index += len(quote)
+                    quote = None
+                    continue
+            elif (index == 0 or value[index - 1] in "\r\n") and fence_end.match(value, index):
+                break
+            elif char in "\"'`":
+                quote = char * 3 if char != "`" and value.startswith(char * 3, index) else char
+                index += len(quote)
+                continue
+            elif char in opening:
+                pending.append((opening[char], index))
+            elif char in ")]}":
+                closing, position = pending.pop()
+                if char != closing:
+                    return True  # Keep the main scanner's fail-closed behavior.
+                bracket_ends[position] = index
+                if not pending:
+                    return True
+            index += 1
+        if quote or escaped:
+            return True  # An unfinished string is not a bare literal boundary.
+        for _, position in pending:
+            bracket_ends[position] = None
+        return False
     contraction = re.compile(r"(?i:(?:[a-z]+n't|it'[sd]))(?=\s|\Z)")
     def next_content(index):
         while index < len(value) and value[index].isspace():
@@ -827,7 +868,7 @@ def _assignment_spans(value, key):
                     index += len(quote)
                     quote = None
                     continue
-            elif prefix == "`" and char == "`" and not stack:
+            elif prefix in ("\"", "'", "`") and char == prefix and not stack:
                 break
             elif char in "\"'`":
                 continuation_pending = False
@@ -850,7 +891,7 @@ def _assignment_spans(value, key):
                 # An unmatched bracket inside a bare dotenv/shell token is
                 # literal punctuation. Initial containers and calls keep their
                 # existing fail-closed boundary handling.
-                if stack or index == value_start or char == "(" or last_closing[opening[char]] > index:
+                if stack or index == value_start or char == "(" or paired_bracket(index):
                     stack.append(opening[char])
             elif char in ")]}" and stack:
                 if char != stack.pop():
@@ -869,7 +910,9 @@ def _assignment_spans(value, key):
             elif not char.isspace():
                 continuation_pending = False
             index += 1
-        if index == value_start:
+        # A fragment ending immediately after its opening quote has no value;
+        # keep its key available to the surrounding shell/quoted-string pass.
+        if index == value_start or (quote and index == value_start + len(quote)):
             continue
         spans.append((match.start(), index))
         cursor = index
