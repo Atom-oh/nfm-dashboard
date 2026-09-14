@@ -10,9 +10,17 @@
 # English
 
 ## Overview
-Covers the non-transient ways the Kiro half of the lens×model review panel
-(`scripts/pr-review/run-panel.sh`, `.github/workflows/pr-review.yml`) stops
-contributing, and what to do about each. Each is surfaced by a banner at the top of
+> **Scope (ADR-014):** everything below describes the **legacy** lens×model path of
+> `run-panel.sh`/`synthesize.sh`, which runs only when `ROLE_REVIEW` is unset (local
+> runs, `tests/structure/test-pr-review-panel.sh`). `.github/workflows/pr-review.yml`
+> sets `ROLE_REVIEW=1`, so the `AI Code Review` workflow `exec`s into
+> `run-specialists.sh`/`synthesize_roles.py` before any of this logic runs; the
+> `[quota]`/`::error::` lines, `kiro-quota.flag` and the banners here do **not**
+> appear in that workflow's output. For the live workflow, use the specialist
+> diagnostics in `scripts/pr-review/README.md` and `docs/pr-review-specialists.md`.
+
+Covers the non-transient ways the Kiro half of the legacy lens×model review panel
+(`scripts/pr-review/run-panel.sh`) stops contributing, and what to do about each. Each is surfaced by a banner at the top of
 the PR review comment and an `::error::` line in the Actions log. The existing
 coverage gate (`coverage-severe.flag`) forces `VERDICT: FAIL` whenever neither Kiro
 model has any successful cell, so a dead Kiro half blocks the PR until fixed.

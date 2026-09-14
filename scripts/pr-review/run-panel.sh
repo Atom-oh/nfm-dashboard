@@ -150,7 +150,7 @@ for lens_file in "${LENS_FILES[@]}"; do
   # Kiro uses its separate gpt-5.6-sol catalog alias; the old Mantle namespace
   # is not this Codex provider or a Kiro model binding.
   if command -v codex >/dev/null 2>&1; then
-    ( try_panel "$SLOT/codex-$lens.md" "$SLOT/codex-$lens.err" \
+    ( try_panel codex "$SLOT/codex-$lens.md" "$SLOT/codex-$lens.err" \
         timeout "$T" codex exec --model global.openai.gpt-6-astra -s read-only --skip-git-repo-check "$LENS_PROMPT" ) &
   else echo "[skip] codex/$lens (binary absent)" >&2; : > "$SLOT/codex-$lens.md"; fi
 
