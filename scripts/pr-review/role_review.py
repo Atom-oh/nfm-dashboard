@@ -1521,9 +1521,23 @@ def _opaque_scan_view(value, bodies):
     return "".join(pieces)
 
 
-def _owned_body(value, match, kind, key):
+def _owned_body(value, match, kind, key, typed_value=None):
     end = match.end()
     if kind == "header":
+        # Leave multiline type/initializer prefixes visible to the typed detector.
+        after_colon = value.index(":", match.start(), end) + 1
+        typed = re.compile(r"\s*[A-Za-z_$][\w.$<>\[\]|, ?]*").match(value, after_colon)
+        if typed is not None:
+            typed_end = typed.end()
+            while typed_end < len(value) and value[typed_end].isspace():
+                typed_end += 1
+            if typed_end < len(value) and value[typed_end] == "=":
+                typed_end += 1
+                while typed_end < len(value) and value[typed_end].isspace():
+                    typed_end += 1
+                literal = typed_value.match(value, typed_end) if typed_value is not None else None
+                if literal is not None and literal.end() > end:
+                    return None
         prefix = re.match(r"[ \t]*[+-]?[ \t]*", match.group())
         return (match.start() + prefix.end(), end)  # Retain indentation and diff structure.
     if kind == "heredoc":
@@ -1612,6 +1626,9 @@ def scrub(value, preserved=frozenset(), *, _fragment=False):
     named_prefix = (rf"(?i:\b(?:header)?name)(?:{quote})?\s*[:=]\s*(?:{quote})?" + identifier
                     + rf"(?:{quote})?[\s,]*[+-]?[ \t]*(?:{quote})?(?i:(?:header)?value)(?:{quote})?\s*[:=]\s*")
     incomplete_name = re.search(named_prefix + r"\Z", value) if _fragment else None
+    typed_rhs = (rf"(?P<owned_value>(?P<typed>{quote}).*?(?P=typed)|[rR](?P<raw>{quote}).*?(?P=raw)"
+                 + r"|`(?:\\.|[^`\\])*`|[^\s,;}\]]+)")
+    typed_value = re.compile(typed_rhs, flags=re.S)
     patterns = (
         r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\Z)",
         r"(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}",
@@ -1629,8 +1646,7 @@ def scrub(value, preserved=frozenset(), *, _fragment=False):
         (key + r"[|>][-+]?[ \t]*\r?\n(?:[+-]?[ \t]+[^\r\n]*(?:\r?\n|\Z))+", 'block'),
         (named_prefix + rf"(?P<owned_value>(?P<named>{quote}).*?(?P=named)|[^\s,}}\]]+)", 'named'),
         (identifier + r"\s*:\s*[A-Za-z_$][\w.$<>\[\]|, ?]*\s*=\s*"
-        + rf"(?P<owned_value>(?P<typed>{quote}).*?(?P=typed)|[rR](?P<raw>{quote}).*?(?P=raw)"
-        + r"|`(?:\\.|[^`\\])*`|[^\s,;}\]]+)", 'named'),
+        + typed_rhs, 'named'),
         _quoted_key_spans,
         (key + rf"(?P<quote>{quote}).*?(?P=quote)", 'scalar'),
         _assignment_spans,
@@ -1666,7 +1682,7 @@ def scrub(value, preserved=frozenset(), *, _fragment=False):
         for match in pattern_matches(pattern, kind):
             spans.append(match.span())
             if kind:
-                body = _owned_body(value, match, kind, key)
+                body = _owned_body(value, match, kind, key, typed_value)
                 if body:
                     bodies.append(body)
         if kind:

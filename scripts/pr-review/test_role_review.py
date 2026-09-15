@@ -150,6 +150,9 @@ class RoleReviewTests(unittest.TestCase):
         cases += [f'password: string = `token = Cookie: {canary}`',
                     f"password: str = r'token = Cookie: {canary}'"]
         cases.append(f'- name: PASSWORD\n  value: token = Cookie: {canary}')
+        cases += [f"class C {{\n  Cookie:\n    string = '{canary}';\n}}",
+                    f"class C {{\n  Cookie: string =\n    '{canary}';\n}}"]
+        cases.append(f"class C {{\n  Cookie: string = 'prefix\\\n{canary}';\n}}")
         for index, evidence in enumerate(cases):
             with self.subTest(case=index):
                 self.work = self.root / f"publication-{index}"
@@ -323,6 +326,9 @@ VERDICT: PASS
         reports += [f'password: string = `token = Cookie: {canary}`\nPUBLIC_AFTER\nVERDICT: PASS\n',
                     f"password: str = r'token = Cookie: {canary}'\nPUBLIC_AFTER\nVERDICT: PASS\n"]
         reports.append(f'- name: PASSWORD\n  value: token = Cookie: {canary}\nPUBLIC_AFTER\nVERDICT: PASS\n')
+        reports += [f"class C {{\n  Cookie:\n    string = '{canary}';\n}}\nPUBLIC_AFTER\nVERDICT: PASS\n",
+                    f"class C {{\n  Cookie: string =\n    '{canary}';\n}}\nPUBLIC_AFTER\nVERDICT: PASS\n"]
+        reports.append(f"class C {{\n  Cookie: string = 'prefix\\\n{canary}';\n}}\nPUBLIC_AFTER\nVERDICT: PASS\n")
         for report in reports:
             with self.subTest(report=report):
                 output = self.work / "chair.md"
