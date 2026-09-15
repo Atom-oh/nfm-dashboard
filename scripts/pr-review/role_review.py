@@ -797,6 +797,31 @@ def mask_fenced_json(text):
     return "".join(output)
 
 
+def _bare_value_span(value, match):
+    """Retain only verified presentation delimiters around a masked bare value."""
+    rhs = match.start("bare_rhs")
+    line_start = value.rfind("\n", 0, rhs) + 1
+    line_end = value.find("\n", rhs)
+    if line_end < 0:
+        line_end = len(value)
+    prefix = value[match.start():rhs]
+    if (prefix.rstrip().endswith(":") and "\n" in prefix and rhs == line_start
+            and REVIEW_FENCE.fullmatch(value[rhs:line_end].rstrip("\r"))):
+        return None  # A bare section label has no value before this fence.
+    if "`" in match.group():
+        line_start = value.rfind("\n", 0, match.start()) + 1
+        citation = re.compile(
+            r"(?<!`)(?P<ticks>`{1,2})(?P<path>[\w./:$@#*+\[\]\\-]+:\d+(?::\d+)?)"
+            r"(?P=ticks)(?!`)")
+        for reference in citation.finditer(value, line_start, line_end):
+            if (any(char in reference["path"] for char in "./\\")
+                    and reference.start("path") <= match.start() < reference.end("path")
+                    and reference.end("path") < match.end()
+                    and re.fullmatch(r"[`.,;:!?)]*", value[reference.end("path"):match.end()])):
+                return match.start(), reference.end("path")
+    return match.span()
+
+
 def scrub(value, preserved=frozenset()):
     """Scrub decoded strings too: raw-JSON sanitizers miss escaped credentials."""
     if isinstance(value, list):
@@ -860,10 +885,14 @@ def scrub(value, preserved=frozenset()):
         + rf"(?:{quote})?[\s,]*[+-]?[ \t]*(?:{quote})?(?i:(?:header)?value)(?:{quote})?\s*[:=]\s*"
         + rf"(?:(?P<named>{quote}).*?(?P=named)|[^\s,}}\]]+)",
         key + rf"(?P<quote>{quote}).*?(?P=quote)",
-        key + r"""[^\s"',;}\]]+""",
     )
     for pattern in patterns:
         value = re.sub(pattern, "[REDACTED]", value, flags=re.S)
+    def bare(match):
+        span = _bare_value_span(value, match)
+        return ("[REDACTED]" + value[span[1]:match.end()]) if span else match.group()
+    value = re.sub(rf"(?P<bare_key>{key})(?P<bare_rhs>[^\s\"',;}}\]]+)",
+                   bare, value, flags=re.S)
     return value
 
 

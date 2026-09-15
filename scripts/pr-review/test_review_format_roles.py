@@ -116,6 +116,8 @@ class ReviewFormatTests(unittest.TestCase):
             "Checked `web/lib/token.ts`: the guard is missing.",
             "Per `docs/decisions/002-auth-and-login.md`: signup is closed.",
             "The guard at web/lib/auth.ts:42 is missing.",
+            "See `app/src/lib/chart-tokens.ts:42` for palette mapping.",
+            "Authorization:\n```http\nGET /health HTTP/1.1\n```",
         )
 
     def test_native_citations_and_prose_keep_specialist_coverage(self):
@@ -311,6 +313,38 @@ class ReviewFormatTests(unittest.TestCase):
         ):
             with self.subTest(text=text):
                 self.assertEqual(role_review.mask_fenced_json(text), text)
+
+
+    def test_delimiter_preservation_does_not_exempt_actual_values(self):
+        canary = "DELIMITER_PRIVATE_CANARY"
+        for value in ("prefix`" + canary + "`", "`" + canary + "`",
+                      "prefix`path/token.ts:42`" + canary):
+            with self.subTest(value=value):
+                text = "password=" + value + "\nPUBLIC_AFTER"
+                filtered = role_review.scrub(text)
+                self.assertNotIn(canary, filtered)
+                self.assertIn("PUBLIC_AFTER", filtered)
+
+
+
+    def test_original_fail_with_invalid_format_cannot_fall_back_to_pass(self):
+        first = (0, "Blocking issue remains. Run `echo details`.\nVERDICT: FAIL\n", "")
+        fallback = (0, "Fallback must not approve this review.\nVERDICT: PASS\n", "")
+        calls, published = self.chair([first, fallback])
+        self.assertEqual(calls, 1)
+        self.assertTrue(published.endswith("VERDICT: FAIL\n"))
+        self.assertIn("withheld", published.lower())
+        self.assertNotIn("echo details", published)
+
+    def test_original_fail_format_error_keeps_quota_precedence(self):
+        first = (0, "Blocking issue remains. Run `echo details`.\nVERDICT: FAIL\n",
+                 "Error: insufficient credits")
+        fallback = (0, "Must not run.\nVERDICT: PASS\n", "")
+        calls, published = self.chair([first, fallback])
+        self.assertEqual(calls, 1)
+        self.assertTrue(published.endswith("VERDICT: FAIL\n"))
+        self.assertNotIn("details were withheld", published.lower())
+
 
 
 if __name__ == "__main__":

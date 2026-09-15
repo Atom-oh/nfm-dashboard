@@ -151,8 +151,9 @@ Untrusted evidence is delimited with the random boundary {nonce}.
             command.extend(["--max-turns", str(turns)])
         started = time.monotonic()
         code, text, error = execute(command, Path.cwd(), environment, input_text, timeout)
-        original_valid = valid(strip_controls(controls(text)), code)
-        original_format = format_violation(strip_controls(controls(text)), SENSITIVE_KEY)
+        original_text = strip_controls(controls(text))
+        original_valid = valid(original_text, code)
+        original_format = format_violation(original_text, SENSITIVE_KEY)
         quota_error, quota_stdout = controls(error), controls(text)
         diagnostic = diagnostic_failure(quota_error)
         hard_limit = (ACCOUNT_LIMIT.search(quota_error)
@@ -162,6 +163,14 @@ Untrusted evidence is delimited with the random boundary {nonce}.
             diagnostic = "quota_diagnostic"
         text = scrub_decoded(scrub(mask_fenced_json(text)))
         format_failed = bool(original_format or format_violation(text, SENSITIVE_KEY))
+        if (original_valid and original_text.rstrip().endswith("VERDICT: FAIL")
+                and diagnostic is None and format_failed):
+            output.write_text(
+                "Chair reported a blocking verdict, but its details failed the review format "
+                "contract. Details were withheld. Blocking issues remain unresolved.\n\nVERDICT: FAIL\n"
+            )
+            record_status("Chair blocking verdict; details withheld", True)
+            return
         if original_valid and valid(text, code) and diagnostic is None and not format_failed:
             output.write_text(text.rstrip() + "\n")
             record_status(model)
