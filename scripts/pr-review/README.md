@@ -118,8 +118,8 @@ Review examples use closed top-level backtick or tilde fences, with both delimit
 at column one on their own lines. Inline code is limited to single-line,
 whitespace-free symbol/path references; an empty `()` suffix is allowed. Use a
 longer outer fence around examples containing fences. Reproducers use synthetic
-values, never credentials. Bare colon section labels and Setext heading underlines
-remain prose.
+values, never credentials. Bare section labels, ordinary same-line prose clauses,
+path:line citations and Setext heading underlines remain prose.
 
 `review_format.py` validates decoded specialist prose and chair output before and
 after confidentiality filtering. Unsupported inline commands, malformed/multiline

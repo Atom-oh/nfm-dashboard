@@ -109,6 +109,48 @@ class ReviewFormatTests(unittest.TestCase):
                 self.assertIn("PUBLIC_AFTER", published)
                 self.assertTrue(published.endswith("VERDICT: PASS\n"))
 
+    def citation_examples(self):
+        return (
+            "See [auth.ts](web/lib/auth.ts:42) for the missing guard.",
+            "Authorization: The caller is checked.",
+            "Checked `web/lib/token.ts`: the guard is missing.",
+            "Per `docs/decisions/002-auth-and-login.md`: signup is closed.",
+            "The guard at web/lib/auth.ts:42 is missing.",
+        )
+
+    def test_native_citations_and_prose_keep_specialist_coverage(self):
+        for text in self.citation_examples():
+            with self.subTest(text=text):
+                response, plan = self.response(text)
+                try:
+                    role_review.validate_response(response, plan, "codex")
+                except role_review.Invalid as error:
+                    self.fail(f"Citation/prose rejected: {error}")
+                helper = test_role_review.RoleReviewTests()
+                helper.setUp()
+                try:
+                    helper.prepare()
+                    helper.finish({"codex": helper.response("codex", checks=[{
+                        "path": test_role_review.FRONTEND,
+                        "evidence": text + "\nPUBLIC_AFTER",
+                    }])})
+                    result = helper.read("slot/codex-result.json")
+                    self.assertTrue(result["valid"])
+                    self.assertIn("PUBLIC_AFTER", result["response"]["checks"][0]["evidence"])
+                    self.assertTrue((helper.work / "deterministic-review.md").read_text()
+                                    .endswith("VERDICT: PASS\n"))
+                finally:
+                    helper.tearDown()
+
+    def test_native_citations_and_prose_keep_chair_adjudication(self):
+        for text in self.citation_examples():
+            with self.subTest(text=text):
+                reply = (0, text + "\nPUBLIC_AFTER\nVERDICT: PASS\n", "")
+                calls, published = self.chair([reply, reply])
+                self.assertEqual(calls, 1)
+                self.assertIn("PUBLIC_AFTER", published)
+                self.assertTrue(published.endswith("VERDICT: PASS\n"))
+
     def test_unsupported_examples_in_each_prose_field(self):
         for text in (
             "Example: `password='synthetic'`.",
@@ -129,6 +171,11 @@ class ReviewFormatTests(unittest.TestCase):
             "Authorization: Bearer synthetic-private",
             "origin-verify: synthetic-private",
             "password=",
+            "password:admin",
+            "password: admin",
+            "See web/lib/auth.ts:42; password='synthetic-private'.",
+            "Authorization: The caller is checked; token=synthetic-private",
+            "Checked `web/lib/token.ts`: the guard is missing; api_key='synthetic-private'.",
         ):
             for field in ("check", "condition", "evidence", "uncertainty"):
                 with self.subTest(text=text, field=field):

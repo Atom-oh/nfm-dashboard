@@ -188,11 +188,11 @@ class RoleReviewTests(unittest.TestCase):
                 filtered = role_review.scrub(evidence)
                 self.assertNotIn(secret, filtered)
                 self.assertIn("PUBLIC_KEEP", filtered)
-                # The first two raw labels now violate the presentation contract.
+                # The equals-style raw label remains an explicit assignment spelling.
                 result = self.record("codex", self.response("codex", checks=[{
-                    "path": FRONTEND, "evidence": evidence}]), expected=2 if index < 2 else 0)
+                    "path": FRONTEND, "evidence": evidence}]), expected=2 if index == 1 else 0)
                 self.assertNotIn(secret, json.dumps(result))
-                if index < 2:
+                if index == 1:
                     self.assertEqual(result["failure_codes"], ["unsupported_review_format"])
                 self.work = self.root / f"fenced-label-{index}"
                 self.prepare()
