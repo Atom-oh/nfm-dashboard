@@ -118,12 +118,12 @@ Review examples use closed top-level backtick or tilde fences, with both delimit
 at column one on their own lines. Inline code is limited to single-line,
 whitespace-free symbol/path references; an empty `()` suffix is allowed. Use a
 longer outer fence around examples containing fences. Reproducers use synthetic
-values, never credentials. Bare section labels, ordinary same-line prose clauses,
-path:line citations and Setext heading underlines remain prose.
+values, never credentials. Bare section labels, multiword natural-language clauses,
+adjacent numeric path:line citations and Setext heading underlines remain prose.
 
 `review_format.py` validates decoded specialist prose and chair output before and
 after confidentiality filtering. Unsupported inline commands, malformed/multiline
-delimiters and unfenced sensitive assignments invalidate coverage with the static
+delimiters and detected unfenced sensitive assignments invalidate coverage with the static
 `unsupported_review_format` code, or fail chair adjudication. Metadata paths retain
 their existing schema validation. Deterministic findings use fenced canonical JSON
 so embedded examples cannot add verdict lines.

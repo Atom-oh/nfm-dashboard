@@ -53,7 +53,8 @@ carry no GitHub token; the chair retains bounded local read tools. Review output
 Code/configuration examples use closed top-level fences at column one. Inline code
 is only for single-line symbol/path references; use synthetic values, never credentials.
 Specialist prose and chair output must satisfy this format before and after filtering.
-Unsupported examples fail coverage or adjudication. Metadata paths keep their existing
+Detected unsupported examples fail coverage or adjudication. Qualified keys and
+YAML tags/anchors still require fences; adjacent numeric path:line citations remain references. Metadata paths keep their existing
 validation. The format gate does not replace confidentiality checks or promise a
 general language parser; see the [module contract](../scripts/pr-review/README.md).
 
