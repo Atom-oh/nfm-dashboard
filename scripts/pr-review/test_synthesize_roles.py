@@ -12,6 +12,14 @@ MODULE = Path(__file__).with_name("synthesize_roles.py")
 
 
 class SynthesisTests(unittest.TestCase):
+    def test_scrubbing_cannot_accept_conflicting_original_verdicts(self):
+        for failure in ("VERDICT: FAIL", "\x1b[31mVERDICT: FAIL\x1b[0m", "VERD\u200bICT: FAIL"):
+            with self.subTest(failure=failure):
+                reply = (0, f"Finding:\npassword = prior ||\n{failure}\nVERDICT: PASS\n", "")
+                calls, output = self.run_chair([reply, reply])
+                self.assertEqual(calls, 2)
+                self.assertTrue(output.rstrip().endswith("VERDICT: FAIL"))
+
     def setUp(self):
         self.assertTrue(MODULE.exists(), "Conditional synthesis is not implemented")
         spec = importlib.util.spec_from_file_location("synthesize_roles", MODULE)
@@ -61,7 +69,7 @@ class SynthesisTests(unittest.TestCase):
                         "-----BEGIN PRIVATE KEY-----\nprivate-value\n-----END PRIVATE KEY-----",
                         '{"name":"DATABASE_PASSWORD","value":"private-value"}'):
             with self.subTest(example=example):
-                reply = (0, example + "\nReviewed behavior.\nVERDICT: PASS\n",
+                reply = (0, "Example:\n```text\n" + example + "\n```\nReviewed behavior.\nVERDICT: PASS\n",
                          "")
                 calls, text = self.run_chair([reply, reply])
                 self.assertEqual(calls, 1)

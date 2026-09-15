@@ -7,6 +7,7 @@ import threading
 from types import SimpleNamespace
 from unittest.mock import patch as mock_patch
 import json
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -27,6 +28,13 @@ def patch(path=FRONTEND, before="old label", after="new label"):
         f"--- a/{path}\n+++ b/{path}\n"
         f"@@ -1 +1 @@\n-{before}\n+{after}\n"
     )
+
+
+def fenced_example(text):
+    """Explicit publication fixtures; raw scanner cases remain separate."""
+    width = max([2] + [len(ticks) for ticks in re.findall(r"`+", text)]) + 1
+    fence = "`" * width
+    return fence + "text\n" + text.rstrip("\n") + "\n" + fence
 
 
 class RoleReviewTests(unittest.TestCase):
@@ -127,7 +135,7 @@ class RoleReviewTests(unittest.TestCase):
         path = "fixtures/_ghp_" + "z" * 30 + "_.txt"
         self.prepare(patch(path))
         result = self.record("codex", self.response("codex", checks=[
-            {"path": path, "evidence": text} for text, _ in cases]))
+            {"path": path, "evidence": fenced_example(text)} for text, _ in cases]))
         self.assertTrue(result["valid"])
         self.assertEqual(result["response"]["reviewed_paths"], [path])
         for (text, secret), check in zip(cases, result["response"]["checks"]):
@@ -153,16 +161,17 @@ class RoleReviewTests(unittest.TestCase):
         for tag, role in plan["roles"].items():
             if role["required"]:
                 self.record(tag, self.response(tag, checks=[
-                    {"path": path, "evidence": "password=private-prose"} for path in paths],
+                    {"path": path, "evidence": fenced_example("password=private-prose")} for path in paths],
                     findings=[{"severity": "MINOR", "path": paths[-1],
-                               "condition": "Changed fixture", "evidence": "password=private-prose"}]))
+                               "condition": "Changed fixture", "evidence": fenced_example("password=private-prose")}]))
         self.cli("aggregate", "--work", self.work)
         self.assertEqual(self.read("role-summary.json")["mode"], "deterministic")
         self.assertEqual(self.read("role-summary.json")["findings"][0]["path"], paths[-1])
         for file in self.work.rglob("*.json"):
             self.assertNotIn("private-prose", file.read_text())
 
-    def test_named_credential_labels_are_classified_before_redaction(self):
+    def test_raw_named_credential_labels_are_classified_before_redaction(self):
+        import role_review
         for index, (name, value, label) in enumerate((
             ("name", "value", "password:admin"),
             ("headerName", "headerValue", "token=abc"),
@@ -174,24 +183,49 @@ class RoleReviewTests(unittest.TestCase):
                 self.prepare()
                 secret = "NAMED_SYNTHETIC_PRIVATE"
                 evidence = json.dumps({name: label, value: secret, "public": "PUBLIC_KEEP"})
+                # Preserve the whole-JSON decoding contract. Fenced strings
+                # exercise a different, pre-existing lexer path.
+                filtered = role_review.scrub(evidence)
+                self.assertNotIn(secret, filtered)
+                self.assertIn("PUBLIC_KEEP", filtered)
+                # The first two raw labels now violate the presentation contract.
                 result = self.record("codex", self.response("codex", checks=[{
-                    "path": FRONTEND, "evidence": evidence}]))
+                    "path": FRONTEND, "evidence": evidence}]), expected=2 if index < 2 else 0)
+                self.assertNotIn(secret, json.dumps(result))
+                if index < 2:
+                    self.assertEqual(result["failure_codes"], ["unsupported_review_format"])
+                self.work = self.root / f"fenced-label-{index}"
+                self.prepare()
+                result = self.record("codex", self.response("codex", checks=[{
+                    "path": FRONTEND, "evidence": fenced_example(evidence)}]))
                 self.assertNotIn(secret, json.dumps(result))
                 self.assertIn("PUBLIC_KEEP", json.dumps(result))
 
-    def test_secret_shaped_json_keys_are_scrubbed(self):
+    def test_raw_secret_shaped_json_keys_are_scrubbed(self):
+        import role_review
         secrets = ["ghp_" + "A" * 36, "AKIA" + "B" * 16]
         self.prepare()
         evidence = json.dumps({secrets[0]: {"nested": {secrets[1]: "KEY_PUBLIC"}},
                                "tok\u200ben": "hidden-value", "token": "other-hidden",
                                "password:admin": "colon-private", "[REDACTED]": "LITERAL_PUBLIC"})
-        self.record("codex", self.response("codex", checks=[
-            {"path": FRONTEND, "evidence": evidence}]))
-        published = (self.work / "slot/codex-result.json").read_text()
+        published = role_review.scrub(evidence)
+        result = self.record("codex", self.response("codex", checks=[
+            {"path": FRONTEND, "evidence": evidence}]), expected=2)
+        self.assertEqual(result["failure_codes"], ["unsupported_review_format"])
+        self.assertIsNone(result["response"])
         for secret in secrets + ["hidden-value", "other-hidden", "colon-private"]:
             self.assertNotIn(secret, published)
+            self.assertNotIn(secret, json.dumps(result))
         self.assertIn("KEY_PUBLIC", published)
         self.assertIn("LITERAL_PUBLIC", published)
+        self.work = self.root / "fenced-keys"
+        self.prepare()
+        result = self.record("codex", self.response("codex", checks=[
+            {"path": FRONTEND, "evidence": fenced_example(evidence)}]))
+        for secret in secrets + ["hidden-value", "other-hidden", "colon-private"]:
+            self.assertNotIn(secret, json.dumps(result))
+        self.assertIn("KEY_PUBLIC", json.dumps(result))
+        self.assertIn("LITERAL_PUBLIC", json.dumps(result))
 
     def test_frontend_routing_has_two_independent_full_scope_requests(self):
         raw = patch() + patch("dashboard/frontend/app/styles.css", "blue", "green")
@@ -328,12 +362,17 @@ class RoleReviewTests(unittest.TestCase):
                 self.work = self.root / f"decoded-pattern-{index}"
                 self.prepare()
                 response = self.response("codex")
-                response["checks"][0]["evidence"] = text
+                response["checks"][0]["evidence"] = fenced_example(text)
                 escaped = json.dumps(response).replace(secret, "".join("\\u" + format(ord(char), "04x") for char in secret))
-                result = self.record("codex", raw=escaped)
+                import role_review
+                self.assertNotIn(secret, role_review.scrub(text))
+                format_blocked = text.startswith("-password: |\n")
+                result = self.record("codex", raw=escaped, expected=2 if format_blocked else 0)
+                if format_blocked:
+                    self.assertEqual(result["failure_codes"], ["unsupported_review_format"])
                 self.assertNotIn(secret, json.dumps(result))
                 self.record("claude-self")
-                self.cli("aggregate", "--work", self.work)
+                self.cli("aggregate", "--work", self.work, expected=2 if format_blocked else 0)
                 self.assertNotIn(secret, (self.work / "deterministic-review.md").read_text())
 
     def test_decoded_multiline_and_control_split_credentials_are_scrubbed(self):
@@ -350,8 +389,14 @@ class RoleReviewTests(unittest.TestCase):
             with self.subTest(index=index):
                 self.work = self.root / f"secret-{index}"
                 self.prepare()
-                response = self.response("codex", checks=[{"path": FRONTEND, "evidence": credential}])
-                result = self.record("codex", raw=json.dumps(response, ensure_ascii=True))
+                response = self.response("codex", checks=[{"path": FRONTEND, "evidence": fenced_example(credential)}])
+                import role_review
+                self.assertNotIn(secret, role_review.scrub(credential))
+                # An unterminated PEM consumes the closing fence as before.
+                result = self.record("codex", raw=json.dumps(response, ensure_ascii=True),
+                                     expected=2 if index == 1 else 0)
+                if index == 1:
+                    self.assertEqual(result["failure_codes"], ["unsupported_review_format"])
                 self.assertNotIn(secret, json.dumps(result))
 
     def test_provenance_is_scrubbed_and_failure_codes_are_static(self):
@@ -439,7 +484,7 @@ class RoleReviewTests(unittest.TestCase):
                 self.work = self.root / f"shapes-{index}"
                 self.prepare()
                 text = evidence if isinstance(evidence, str) else json.dumps(evidence)
-                response = self.response("codex", checks=[{"path": FRONTEND, "evidence": text}])
+                response = self.response("codex", checks=[{"path": FRONTEND, "evidence": fenced_example(text)}])
                 self.record("codex", response)
                 self.record("claude-self")
                 self.cli("aggregate", "--work", self.work)
@@ -586,7 +631,7 @@ class RoleReviewTests(unittest.TestCase):
                 self.prepare()
                 secret = "SYNTHETIC_PRIVATE_SDK_VALUE"
                 evidence = json.dumps({key: secret})
-                response = self.response("codex", checks=[{"path": FRONTEND, "evidence": evidence}])
+                response = self.response("codex", checks=[{"path": FRONTEND, "evidence": fenced_example(evidence)}])
                 self.assertNotIn(secret, json.dumps(self.record("codex", response=response)))
                 self.record("claude-self")
                 self.cli("aggregate", "--work", self.work)
