@@ -389,6 +389,60 @@ class ReviewFormatTests(unittest.TestCase):
                 self.assertTrue(published.endswith("VERDICT: FAIL\n"))
                 self.assertNotIn("FMT_V4_PRIVATE", published)
 
+    def sensitive_fence_info_examples(self):
+        for label, marker in (("password", "```"), ("api_key", "~~~~"),
+                              ("Authorization", "````")):
+            for newline in ("\n", "\r\n"):
+                yield newline.join((label + ":", marker + "FENCE_INFO_CANARY",
+                                    "EXAMPLE_BODY", marker, "PUBLIC_AFTER"))
+
+    def test_sensitive_fence_info_is_masked_before_role_publication(self):
+        for text in self.sensitive_fence_info_examples():
+            with self.subTest(text=text):
+                helper = test_role_review.RoleReviewTests()
+                helper.setUp()
+                try:
+                    helper.prepare()
+                    response = helper.response("codex", findings=[{
+                        "severity": "MINOR", "path": test_role_review.FRONTEND,
+                        "condition": "Synthetic fence info example", "evidence": text}])
+                    helper.finish({"codex": response})
+                    for name in ("slot/codex-result.json", "role-summary.json", "deterministic-review.md"):
+                        published = (helper.work / name).read_text()
+                        self.assertNotIn("FENCE_INFO_CANARY", published)
+                        self.assertIn("EXAMPLE_BODY", published)
+                        self.assertIn("PUBLIC_AFTER", published)
+                    self.assertTrue((helper.work / "deterministic-review.md").read_text()
+                                    .endswith("VERDICT: PASS\n"))
+                finally:
+                    helper.tearDown()
+
+    def test_sensitive_fence_info_is_masked_by_real_chair_filtering(self):
+        for text in self.sensitive_fence_info_examples():
+            with self.subTest(text=text):
+                reply = (0, text + "\nVERDICT: PASS\n", "")
+                calls, published = self.chair([reply, reply])
+                self.assertEqual(calls, 1)
+                self.assertNotIn("FENCE_INFO_CANARY", published)
+                self.assertIn("EXAMPLE_BODY", published)
+                self.assertIn("PUBLIC_AFTER", published)
+                self.assertTrue(published.endswith("VERDICT: PASS\n"))
+
+    def test_fence_info_masking_keeps_empty_and_nested_delimiters(self):
+        for text in ("```text\npassword:\n```\nPUBLIC_AFTER",
+                     "~~~~text\napi_key:\n~~~~\nPUBLIC_AFTER",
+                     "````text\npassword:\n```FENCE_INFO_CANARY\nEXAMPLE_BODY\n```\n````\nPUBLIC_AFTER"):
+            with self.subTest(text=text):
+                clean = role_review.scrub(text)
+                self.assertNotIn("FENCE_INFO_CANARY", clean)
+                self.assertEqual(role_review.scrub(clean), clean)
+                reply = (0, text + "\nVERDICT: PASS\n", "")
+                calls, published = self.chair([reply, reply])
+                self.assertEqual(calls, 1)
+                self.assertNotIn("FENCE_INFO_CANARY", published)
+                self.assertIn("PUBLIC_AFTER", published)
+                self.assertTrue(published.endswith("VERDICT: PASS\n"))
+
     def test_original_fail_with_invalid_format_cannot_fall_back_to_pass(self):
         first = (0, "Blocking issue remains. Run `echo details`.\nVERDICT: FAIL\n", "")
         fallback = (0, "Fallback must not approve this review.\nVERDICT: PASS\n", "")

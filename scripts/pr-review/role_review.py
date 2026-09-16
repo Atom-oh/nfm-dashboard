@@ -891,7 +891,13 @@ def scrub(value, preserved=frozenset()):
         value = re.sub(pattern, "[REDACTED]", value, flags=re.S)
     def bare(match):
         span = _bare_value_span(value, match)
-        return ("[REDACTED]" + value[span[1]:match.end()]) if span else match.group()
+        if span is not None:
+            return "[REDACTED]" + value[span[1]:match.end()]
+        marker = REVIEW_FENCE.fullmatch(match["bare_rhs"])
+        if marker and marker[2]:
+            # Preserve an opening fence without publishing its potential value.
+            return match["bare_key"] + marker[1] + "text"
+        return match.group()
     value = re.sub(rf"(?P<bare_key>{key})(?P<bare_rhs>[^\s\"',;}}\]]+)",
                    bare, value, flags=re.S)
     return value
