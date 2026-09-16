@@ -13,7 +13,7 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from run_role import controls, execute, scrub  # noqa: E402
-from role_review import SENSITIVE_KEY, diagnostic_failure, strip_controls, scrub as scrub_decoded, mask_fenced_json  # noqa: E402
+from role_review import SENSITIVE_KEY, REVIEW_KEY_TOKEN_PATTERN, diagnostic_failure, strip_controls, scrub as scrub_decoded, mask_fenced_json  # noqa: E402
 from prepare_roles import project_policy  # noqa: E402
 from review_format import FORMAT_INSTRUCTIONS, format_violation  # noqa: E402
 
@@ -153,7 +153,8 @@ Untrusted evidence is delimited with the random boundary {nonce}.
         code, text, error = execute(command, Path.cwd(), environment, input_text, timeout)
         original_text = strip_controls(controls(text))
         original_valid = valid(original_text, code)
-        original_format = format_violation(original_text, SENSITIVE_KEY)
+        original_format = format_violation(
+            original_text, SENSITIVE_KEY, key_token_pattern=REVIEW_KEY_TOKEN_PATTERN)
         quota_error, quota_stdout = controls(error), controls(text)
         diagnostic = diagnostic_failure(quota_error)
         hard_limit = (ACCOUNT_LIMIT.search(quota_error)
@@ -162,7 +163,8 @@ Untrusted evidence is delimited with the random boundary {nonce}.
         if hard_limit:
             diagnostic = "quota_diagnostic"
         text = scrub_decoded(scrub(mask_fenced_json(text)))
-        format_failed = bool(original_format or format_violation(text, SENSITIVE_KEY))
+        format_failed = bool(original_format or format_violation(
+            text, SENSITIVE_KEY, key_token_pattern=REVIEW_KEY_TOKEN_PATTERN))
         if (original_valid and original_text.rstrip().endswith("VERDICT: FAIL")
                 and diagnostic is None and format_failed):
             output.write_text(

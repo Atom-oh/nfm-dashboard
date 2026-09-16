@@ -698,7 +698,8 @@ def validate_response(response, plan, tag):
         raise Invalid("invalid_uncertainties")
     prose = [check["evidence"] for check in checks] + uncertainties
     prose += [finding[field] for finding in findings for field in ("condition", "evidence")]
-    if any(format_violation(text, SENSITIVE_KEY) for text in prose):
+    if any(format_violation(text, SENSITIVE_KEY,
+                            key_token_pattern=REVIEW_KEY_TOKEN_PATTERN) for text in prose):
         raise Invalid("unsupported_review_format")
 
 
@@ -748,6 +749,7 @@ SENSITIVE_KEY = re.compile(
     r"secret|token|credential|passphrase|private[_-]?key|cookie|authorization|"
     r"connection[_-]?string|origin[_-]?verify|AccessKeyId|access[_-]?key[_-]?id)[A-Za-z0-9_.:-]*)"
 )
+REVIEW_KEY_TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_.:-]+", re.I)
 
 
 API_KEY_PATTERN = re.compile(r"(?<![A-Za-z0-9_])sk-[A-Za-z0-9_-]{16,}")

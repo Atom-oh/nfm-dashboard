@@ -1,6 +1,10 @@
 """The approved presentation contract gates publication, not metadata."""
 
 import unittest
+import review_format
+import re
+import random
+import itertools
 import json
 from pathlib import Path
 import subprocess
@@ -15,6 +19,127 @@ import test_synthesize_roles
 
 
 class ReviewFormatTests(unittest.TestCase):
+    def test_role_format_validation_bounds_operator_free_key_runs(self):
+        script = (
+            "import sys\n"
+            "from role_review import validate_response\n"
+            "path='src/app.py';head='a'*40\n"
+            "plan={'head_sha':head,'roles':{'codex':"
+            "{'role':'implementation','paths':[path]}}}\n"
+            "response={'head_sha':head,'role':'implementation','scope_complete':True,"
+            "'reviewed_paths':[path],'checks':[{'path':path,'evidence':"
+            "'token-'*(int(sys.argv[1])//6)}],'findings':[],'uncertainties':[]}\n"
+            "validate_response(response,plan,'codex')\n"
+        )
+        for size in (6000, 36000):
+            with self.subTest(bytes=size):
+                try:
+                    result = subprocess.run(
+                        [sys.executable, "-c", script, str(size)],
+                        cwd=Path(__file__).parent, capture_output=True,
+                        text=True, timeout=2,
+                    )
+                except subprocess.TimeoutExpired:
+                    self.fail(f"Role format validation stalled on {size} operator-free bytes")
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+
+    def test_opted_format_bounds_plain_inline_and_assignment_key_runs(self):
+        script = (
+            "import re,sys\n"
+            "from role_review import SENSITIVE_KEY\n"
+            "from review_format import format_violation\n"
+            "tokens=re.compile(r'[A-Za-z0-9_.:-]+',re.I)\n"
+            "text='token-'*(int(sys.argv[1])//6)\n"
+            "for pattern in (SENSITIVE_KEY,None):\n"
+            " def check(value):\n"
+            "  return (format_violation(value,pattern,key_token_pattern=tokens)"
+            " if pattern is not None else format_violation(value))\n"
+            " assert check(text) is None\n"
+            " assert check('`'+text+'`') is None\n"
+            " assert check(text+\"='synthetic'\") == 'unsupported_review_format'\n"
+            " assert check('`'+text+\"`='synthetic'\") == 'unsupported_review_format'\n"
+        )
+        for size in (6000, 36000):
+            with self.subTest(bytes=size):
+                try:
+                    result = subprocess.run(
+                        [sys.executable, "-c", script, str(size)],
+                        cwd=Path(__file__).parent, capture_output=True,
+                        text=True, timeout=2,
+                    )
+                except subprocess.TimeoutExpired:
+                    self.fail(f"Explicit/default key matching stalled on {size} bytes")
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+
+    def test_role_and_original_filtered_chair_calls_declare_key_alphabet(self):
+        calls = []
+
+        def checked(text, pattern, **kwargs):
+            tokens = kwargs.get("key_token_pattern")
+            self.assertIsNotNone(tokens, "Production format validation omitted the opt-in")
+            self.assertEqual(tokens.pattern, r"[A-Za-z0-9_.:-]+")
+            self.assertEqual(tokens.flags, re.compile(tokens.pattern, re.I).flags)
+            self.assertIs(pattern, role_review.SENSITIVE_KEY)
+            calls.append(text)
+            return review_format.format_violation(text, pattern, **kwargs)
+
+        response, plan = self.response("Checked the caller.")
+        with patch.object(role_review, "format_violation", side_effect=checked):
+            role_review.validate_response(response, plan, "codex")
+        self.assertEqual(len(calls), 1)
+        calls.clear()
+        reply = (0, "Checked the caller.\nVERDICT: PASS\n", "")
+        with patch.object(synthesize_roles, "format_violation", side_effect=checked):
+            provider_calls, published = self.chair([reply, reply])
+        self.assertEqual(provider_calls, 1)
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(published.endswith("VERDICT: PASS\n"))
+
+
+    def test_opted_matching_keeps_existing_classification_and_key_positions(self):
+        pattern = role_review.SENSITIVE_KEY
+        tokens = re.compile(r"[A-Za-z0-9_.:-]+", re.I)
+        keys = ("token", "token-token", "authentic", "auth", "password", "plain",
+                "config.password", "AWS::SecretsManager::Secret", "apiKey", "paſſword",
+                "épassword", "İtoken", "_token", "token:plain", ":token")
+        tails = ("", ":42", ":L42-L45", ":42:7", "='x'", ": none.", ": bare",
+                 ": checked here", ": [file](auth.ts)", '" : "x"', "\\\"='x'",
+                 " :token='x'", "\n===\n", " ordinary: prose")
+        corpus = [prefix + key + tail for prefix, key, tail in
+                  itertools.product(("", "/", "\\", '"', "a "), keys, tails)]
+        randomizer = random.Random(234)
+        fragments = ("token", "auth", "plain", "-", "_", ".", ":", "=", " ", "\n", '"', "\\", "é")
+        corpus.extend("".join(randomizer.choices(fragments, k=12)) for _ in range(1000))
+        corpus.extend((
+            "some (token), label : none.", "api \t-key = 'x'",
+            "token [item], name: value", "a token \t: bare", "token \t\n= 'x'",
+            "token:'x', password = 'y'", "See `src/token.py:42` for the caller.",
+            "Checked ``src/token.py:42`` for the caller.", "password: !!str synthetic",
+            "Authorization: [implementation](src/auth.py)", "Secrets: none.",
+            "```text\npassword='synthetic'\n```",
+        ))
+        # No opt-in retains the old matcher for this non-default caller policy.
+        legacy = re.compile(pattern.pattern + r"""(?:\\?["'])?"""
+                            + review_format.ASSIGNMENT_TAIL.pattern, pattern.flags)
+        for text in corpus:
+            with self.subTest(text=text):
+                expected = [(m.start(), m.start("spacing"), m.end(),
+                             m["spacing"], m["operator"]) for m in legacy.finditer(text)]
+                actual = [(start, m.start("spacing"), m.end(), m["spacing"], m["operator"])
+                          for start, m in review_format.assignment_matches(text, pattern, tokens)]
+                self.assertEqual(actual, expected)
+                self.assertEqual(
+                    bool(review_format.sensitive_reference(text, pattern, tokens)),
+                    bool(pattern.search(text)),
+                )
+                self.assertEqual(
+                    review_format.format_violation(text, pattern, key_token_pattern=tokens),
+                    review_format.format_violation(text, pattern),
+                )
+
+
     def test_shell_adapter_gets_instructions_and_fixed_failure(self):
         script = Path(__file__).with_name("review_format.py")
         result = subprocess.run([sys.executable, str(script), "instructions"],
