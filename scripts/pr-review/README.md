@@ -114,6 +114,30 @@ Blocked input yields deterministic FAIL; the chair cannot waive coverage failure
 Publish scrubbed reports/receipts/metadata only; never raw `roles/*.diff` or
 `requests/*.input/.prompt`.
 
+Review examples use closed top-level backtick or tilde fences, with both delimiters
+at column one on their own lines. Inline code is limited to single-line,
+whitespace-free symbol/path references; an empty `()` suffix is allowed. Use a
+longer outer fence around examples containing fences. Reproducers use synthetic
+values, never credentials. Bare section labels, multiword natural-language clauses,
+adjacent numeric path:line citations and Setext heading underlines remain prose.
+
+`review_format.py` validates decoded specialist prose and chair output before and
+after confidentiality filtering. Unsupported inline commands, malformed/multiline
+delimiters and detected unfenced sensitive assignments invalidate coverage with the static
+`unsupported_review_format` code, or fail chair adjudication. Metadata paths retain
+their existing schema validation. Deterministic findings use fenced canonical JSON
+so embedded examples cannot add verdict lines.
+
+Complete JSON objects or arrays inside closed fences use the existing structured
+scrubber before prose filtering can erase sensitive labels. Malformed JSON and
+non-JSON bodies retain their existing filtering; this helper does not repair them.
+
+This is an intentional narrowing of the publication format, not a general code
+parser or a confidentiality guarantee. Existing redaction, original/filtered verdict
+checks, provider diagnostics, scope custody and budgets remain mandatory. Raw
+confidentiality regression fixtures remain tested separately from fenced publication
+examples.
+
 ## Limits and checks
 
 Limits: 95,000 diff bytes (UTF-8), 3,000 lines, 24,000 context bytes, <128 KiB
