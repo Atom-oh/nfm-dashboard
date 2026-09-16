@@ -31,7 +31,8 @@ import secrets
 import sys
 import tempfile
 import unicodedata
-from review_format import FORMAT_INSTRUCTIONS, format_violation, FENCE as REVIEW_FENCE
+from review_format import (FORMAT_INSTRUCTIONS, format_violation,
+                           FENCE as REVIEW_FENCE, REFERENCE as REVIEW_REFERENCE)
 
 
 MAX_DIFF_BYTES = 95000
@@ -811,14 +812,14 @@ def _bare_value_span(value, match):
     if "`" in match.group():
         line_start = value.rfind("\n", 0, match.start()) + 1
         citation = re.compile(
-            r"(?<!`)(?P<ticks>`{1,2})(?P<path>[\w./:$@#*+\[\]\\-]+:\d+(?::\d+)?)"
+            r"(?<!`)(?P<ticks>`{1,2})(?P<reference>[^`\r\n]+)"
             r"(?P=ticks)(?!`)")
         for reference in citation.finditer(value, line_start, line_end):
-            if (any(char in reference["path"] for char in "./\\")
-                    and reference.start("path") <= match.start() < reference.end("path")
-                    and reference.end("path") < match.end()
-                    and re.fullmatch(r"[`.,;:!?)]*", value[reference.end("path"):match.end()])):
-                return match.start(), reference.end("path")
+            if (REVIEW_REFERENCE.fullmatch(reference["reference"])
+                    and reference.start("reference") <= match.start() < reference.end("reference")
+                    and reference.end("reference") < match.end()
+                    and re.fullmatch(r"[`.,;:!?)]*", value[reference.end("reference"):match.end()])):
+                return match.start(), reference.end("reference")
     return match.span()
 
 

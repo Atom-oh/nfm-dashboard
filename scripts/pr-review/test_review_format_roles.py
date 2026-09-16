@@ -117,6 +117,9 @@ class ReviewFormatTests(unittest.TestCase):
             "Per `docs/decisions/002-auth-and-login.md`: signup is closed.",
             "The guard at web/lib/auth.ts:42 is missing.",
             "See `app/src/lib/chart-tokens.ts:42` for palette mapping.",
+            "See `AWS::SecretsManager::Secret` for the resource type.",
+            "See `web/lib/token.ts:42-45` for token validation.",
+            "See `web/lib/token.ts:42:7` for token validation.",
             "Authorization:\n```http\nGET /health HTTP/1.1\n```",
         )
 
@@ -318,7 +321,9 @@ class ReviewFormatTests(unittest.TestCase):
     def test_delimiter_preservation_does_not_exempt_actual_values(self):
         canary = "DELIMITER_PRIVATE_CANARY"
         for value in ("prefix`" + canary + "`", "`" + canary + "`",
-                      "prefix`path/token.ts:42`" + canary):
+                      "prefix`path/token.ts:42`" + canary,
+                      "prefix`AWS::SecretsManager::Secret`" + canary,
+                      "prefix`web/lib/token.ts:42-45`" + canary):
             with self.subTest(value=value):
                 text = "password=" + value + "\nPUBLIC_AFTER"
                 filtered = role_review.scrub(text)
